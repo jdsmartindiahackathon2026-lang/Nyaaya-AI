@@ -18,7 +18,6 @@ export default function AppHeader({ mode, jurisdiction, onJurisdictionChange }: 
   const meta = MODE_TITLES[mode] ?? MODE_TITLES.ask
   const jurisdictions = [
     { label: 'India', value: 'india' },
-    { label: 'India + International', value: 'both' },
     { label: 'International', value: 'international' },
   ]
 
