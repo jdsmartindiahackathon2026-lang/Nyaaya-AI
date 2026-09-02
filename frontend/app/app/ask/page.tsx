@@ -86,7 +86,7 @@ export default function AskPage() {
       {/* Thread or empty state */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '26px 30px 10px' }}>
         {isEmpty ? (
-          <div className="rise-in" style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 22 }}>
+          <div className="rise-in" style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 22, position: 'relative', zIndex: 1 }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <h1 className="serif" style={{
                 margin: 0, fontSize: 33, lineHeight: 1.15, fontWeight: 700,
