@@ -1,0 +1,29 @@
+{
+  "approved_sources": {
+    "patents": ["ipindia.gov.in", "eipo.gov.in"],
+    "ayush_regulations": ["ayush.gov.in", "cdsco.gov.in", "indianpharmacycouncil.org"],
+    "biodiversity_abs": ["nbaindia.org", "cbd.int"],
+    "international_ip": ["wipo.int", "trips.wto.org"],
+    "indian_legislation": ["indiacode.nic.in", "egazette.gov.in"],
+    "traditional_knowledge": ["tkdl.res.in"],
+    "fssai_food": ["fssai.gov.in"],
+    "drug_regulatory": ["cdsco.gov.in"],
+    "plant_variety": ["plantauthority.gov.in"]
+  },
+  "all_domains": [
+    "ipindia.gov.in",
+    "eipo.gov.in",
+    "ayush.gov.in",
+    "cdsco.gov.in",
+    "indianpharmacycouncil.org",
+    "nbaindia.org",
+    "cbd.int",
+    "wipo.int",
+    "trips.wto.org",
+    "indiacode.nic.in",
+    "egazette.gov.in",
+    "tkdl.res.in",
+    "fssai.gov.in",
+    "plantauthority.gov.in"
+  ]
+}
