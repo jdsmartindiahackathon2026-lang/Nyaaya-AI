@@ -1,4 +1,12 @@
-# Python
+# Environment / secrets — never commit
+.env
+.env.local
+.env*.local
+*.env
+frontend/.env.local
+frontend/.env*.local
+
+# Python (legacy — no longer used)
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -8,14 +16,15 @@ build/
 venv/
 env/
 
-# Env files
-.env
-*.env.local
-
 # Node
 node_modules/
-.next/
-dist/
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Supabase local dev
+supabase/.branches/
+supabase/.temp/
 
 # OS
 .DS_Store
@@ -24,3 +33,4 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+*.swp
