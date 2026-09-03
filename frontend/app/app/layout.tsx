@@ -1,20 +1,23 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import LeftSidebar from '../../components/LeftSidebar'
 import RightSidebar from '../../components/RightSidebar'
 import AppHeader from '../../components/AppHeader'
 import MiniGuide from '../../components/MiniGuide'
 import ParticleField from '../../components/ParticleField'
 import OpeningSplash from '../../components/OpeningSplash'
+import { supabase } from '../../lib/supabase'
 
 const SIDEBAR_W = 310
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  const router = useRouter()
   const mode = pathname.split('/').pop() ?? 'ask'
 
   const [splashDone, setSplashDone] = useState(false)
+  const [authChecked, setAuthChecked] = useState(false)
   const [language, setLanguage] = useState('en')
   const [jurisdiction, setJurisdiction] = useState('india')
   const [userType, setUserType] = useState('startup')
@@ -26,6 +29,31 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       setJurisdiction(localStorage.getItem('nyaaya_jurisdiction') ?? 'india')
     } catch {}
   }, [])
+
+  // Auth gate: if no session, bounce to /login
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (cancelled) return
+      if (!session) { router.replace('/login'); return }
+      setAuthChecked(true)
+    })()
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) router.replace('/login')
+    })
+    return () => { cancelled = true; sub.subscription.unsubscribe() }
+  }, [router])
+
+  if (!authChecked) {
+    return (
+      <div style={{
+        minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: '#060b0a', color: '#b7d4c5',
+        fontFamily: "'IBM Plex Sans', system-ui, sans-serif", fontSize: 14,
+      }}>Loading…</div>
+    )
+  }
 
   return (
     <>

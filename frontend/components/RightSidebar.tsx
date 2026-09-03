@@ -1,5 +1,7 @@
 'use client'
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { supabase } from '../lib/supabase'
 
 const NINE_REALMS = [
   { label: 'Patents',                   count: '2,140' },
@@ -21,6 +23,21 @@ interface Props {
 
 export default function RightSidebar({ userType, jurisdiction, classification }: Props) {
   const [activeRegime, setActiveRegime] = useState<string | null>(null)
+  const router = useRouter()
+
+  async function signOut() {
+    try {
+      await supabase.auth.signOut()
+      try {
+        localStorage.removeItem('nyaaya_onboarded')
+        localStorage.removeItem('nyaaya_userType')
+        localStorage.removeItem('nyaaya_language')
+        localStorage.removeItem('nyaaya_jurisdiction')
+      } catch {}
+    } finally {
+      router.replace('/login')
+    }
+  }
 
   const jurLabel = jurisdiction === 'india' ? 'India'
     : jurisdiction === 'international' ? 'International'
@@ -92,6 +109,37 @@ export default function RightSidebar({ userType, jurisdiction, classification }:
             <span>{g}</span>
           </div>
         ))}
+      </div>
+
+      {/* Account */}
+      <div className="unfurl-r" style={{
+        display: 'flex', flexDirection: 'column', gap: 8,
+        padding: 12, border: '1px solid var(--border)', borderRadius: 9,
+        background: 'var(--bg-card)', animationDelay: '240ms',
+      }}>
+        <div className="label-xs">Account</div>
+        <button
+          onClick={signOut}
+          style={{
+            width: '100%', padding: '9px 12px', borderRadius: 8,
+            border: '1px solid var(--border)', background: 'transparent',
+            color: 'var(--text-dim)', fontSize: 12, cursor: 'pointer',
+            fontFamily: 'inherit', textAlign: 'left',
+            transition: 'background 150ms, color 150ms, border-color 150ms',
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.background = 'rgba(226,131,106,0.08)'
+            e.currentTarget.style.color = '#e2836a'
+            e.currentTarget.style.borderColor = 'rgba(226,131,106,0.35)'
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.background = 'transparent'
+            e.currentTarget.style.color = 'var(--text-dim)'
+            e.currentTarget.style.borderColor = 'var(--border)'
+          }}
+        >
+          Sign out
+        </button>
       </div>
     </aside>
   )
