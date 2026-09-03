@@ -2,6 +2,71 @@
 
 ---
 
+## Session 7 — 2026-09-03
+
+### What was done
+
+Full login + auth wiring landed on branch `feature/login-and-auth-wiring` — PR #7, open, awaiting merge. Google OAuth confirmed working end-to-end after Joyjit enabled the provider in Supabase dashboard.
+
+#### Files created
+| File | Purpose |
+|---|---|
+| `frontend/app/login/page.tsx` | 1:1 port of Claude Design login (from `Landing Page of IP-SAKTI.zip`). Yggdrasil bg with mouse-parallax breathing/glow, fireflies, butterflies, drifting leaves, rising particles, streaks, vignette. Email/password sign-in + sign-up (strength meter, terms), Google OAuth, Forgot-password → `resetPasswordForEmail`, inline validation, banner. Wrapped in `Suspense` for `useSearchParams`. |
+| `frontend/app/auth/callback/page.tsx` | OAuth + password-reset return handler. Hydrates session from URL, routes based on whether `public.users` row exists for `auth.uid()`. Also `Suspense`-wrapped. |
+| `frontend/public/yggdrasil-bg.png` | Background asset for login (from Claude Design handoff). |
+
+#### Files modified
+| File | Change |
+|---|---|
+| `frontend/app/page.tsx` | Was static `redirect('/onboarding')`. Now session-aware router — no session → `/login`, session + profile row → `/app/ask`, session + no profile → `/onboarding`. |
+| `frontend/app/app/layout.tsx` | Added auth gate — checks Supabase session on mount, redirects to `/login` if absent; `onAuthStateChange` listener bounces on sign-out. Renders "Loading…" until session check completes. |
+| `frontend/app/onboarding/page.tsx` | No longer calls `signInAnonymously()`. Requires an existing session (bounces to `/login` if missing). Upserts `public.users` against the real JWT's `auth.uid()`. Also gates on existing profile row — skips straight to `/app/ask` if user already onboarded. |
+| `frontend/components/RightSidebar.tsx` | Added "Account" card with **Sign out** button. Calls `supabase.auth.signOut()`, clears `nyaaya_*` localStorage, routes to `/login`. |
+
+### Decisions made
+- **Auth handoff:** `/login` handles OAuth + password + reset in one page (mode toggle). No separate `/signup` or `/forgot-password` routes — kept the design's single-card intent.
+- **Google Client ID/Secret pasted by Joyjit only.** Rule stands: assistant never enters credentials into any form (Supabase dashboard, Google Cloud, anywhere). Even locally, even with explicit permission.
+- **`useSearchParams` Suspense boundaries** added on `/login` and `/auth/callback` — Next 14 App Router requires this for the static build. Wrapper components (`LoginPageWrapper`, `AuthCallbackWrapper`) do this.
+- **Password handling:** frontend never touches raw passwords beyond passing them to `supabase.auth.signUp` / `signInWithPassword`. Bcrypt hashing + storage handled entirely by Supabase's `auth.users.encrypted_password`. `public.users` has no password field. Confirmed compliant with CLAUDE.md rule #3.
+- **Vignette + gradient tuning:** design's fixed-pixel overlays (200px vignette, 0.55 top gradient) were tuned at 900px canvas and looked washed out at desktop viewports. Bumped to `inset 0 0 400px 120px rgba(0,0,0,0.75)` + `0.7/0.45/0.85` stops for readable dimming at any width. Committed as a follow-up patch.
+
+### Verified
+- `next build` clean — 12 routes, 0 errors.
+- `/login` renders 1:1 with design (bg parallax, fireflies, butterflies, card, mode toggle).
+- Signup mode swaps heading, adds Full name + Confirm password + Terms checkbox, CTA changes.
+- After Joyjit enabled Google provider in Supabase dashboard, OAuth flow tested end-to-end successfully.
+- Password hashing confirmed: `public.users` schema has no password column; `auth.users.encrypted_password` (bcrypt, len 60) holds it — never leaves Supabase.
+
+### LOC snapshot (Session 7 close)
+| Layer | Lines |
+|---|---|
+| Backend (Edge Functions, `_shared` helpers, JSON configs) | 957 |
+| Frontend (Next.js app + components + lib) | 3,222 |
+| DB migrations | 62 |
+| Docs (top-level `*.md`) | 2,175 |
+| **Total (code + docs)** | **6,416** |
+
+### Pending (carry to Session 8)
+| Task | Owner |
+|---|---|
+| Merge PR #7 | Joyjit |
+| Redeploy all 6 Edge Functions | Joyjit / Agent (after PR merge) |
+| Rate limiting on all 6 Edge Functions | Agent |
+| Schema drift — relax `users.language` CHECK to include `ta` | Agent |
+| Revoke EXECUTE on `public.rls_auto_enable()` (carried from Session 6) | Agent |
+| Vercel deployment + branch protection on `main` | Joyjit |
+| Google OAuth authorized redirect URIs updated for Vercel domain when live | Joyjit |
+| Supabase Auth "Site URL" pointed at Vercel domain when live | Joyjit |
+| Hybrid RAG plan execution (10 core acts + pgvector) | Agent |
+| Small polish: add tree logo above `/login` heading | Agent |
+
+### Known gaps / risks
+- Rate limiting still absent on all 6 Edge Functions — must land before public exposure.
+- Frontend still sends `conversationId: null`; `messages` insert in `ask-query` remains dead code. Now unblocked (real users exist), but not required for hackathon demo.
+- Schema drift: `users.language` CHECK still `('en','hi','bn')`; frontend offers Tamil. Migration deferred to next session.
+
+---
+
 ## Session 6 — 2026-09-03
 
 ### What was done
@@ -36,17 +101,6 @@ Branch: `feature/onboarding-4-screens` → PR [#5](https://github.com/jdsmartind
 - **Jurisdiction:** hardcoded to India everywhere it is user-visible. AppHeader toggle removed. Session 4-onwards decision.
 - **Returning users:** skip onboarding via `localStorage.nyaaya_onboarded` flag.
 - **`id = auth_id` in users row:** avoided needing a new unique constraint on `auth_id` (a DDL migration was blocked by the classifier); reused the existing `id` PK. Both columns now hold the auth UID — the FK to `auth.users(id)` on `auth_id` and the RLS check both work.
-
-### Pending (carry to Session 7 — Auth + Login)
-| Task | Owner | Notes |
-|---|---|---|
-| Design + build login/signup screens | Agent + Joyjit | Replaces `signInAnonymously` with real Supabase auth (email + password / OAuth TBD) |
-| Wire login → profile-exists check → onboarding gate | Agent | If `users` row exists for the auth user, skip onboarding; otherwise run the 4 screens. |
-| Revoke EXECUTE on `public.rls_auto_enable()` | Agent | Advisor WARN — one-line migration |
-| Rate limiting on all 6 Edge Functions | Agent | Still open from Session 5 |
-| Set `PERPLEXITY_API_KEY` + `GROQ_API_KEY` in Supabase Secrets | Joyjit | Still open |
-| Vercel deployment | Joyjit | Still open |
-| E2E smoke test | Agent (after keys) | Still open |
 
 ---
 

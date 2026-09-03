@@ -6,23 +6,26 @@ _Last updated: Session 6 — 2026-09-03_
 
 ## Current state
 
-4-screen onboarding flow (Language → Who Are You → Context Questions → Session Summary) shipped on branch `feature/onboarding-4-screens` (PR #5, open). Fixed a silent bug where the `users` upsert was writing a non-existent `preferred_language` column and leaving `auth_id` NULL — which RLS would reject; profile writes now land correctly and are isolated per user. Jurisdiction hardcoded to India end-to-end. Next session: real login/signup screens replacing `signInAnonymously`.
+Login + full Supabase auth wiring landed on branch `feature/login-and-auth-wiring` (PR #7). Email/password + Google OAuth both working end-to-end after Joyjit enabled the Google provider in Supabase dashboard. Onboarding no longer uses `signInAnonymously()` — it now runs against a real authed session. `/app/*` is session-gated; sign-out lives in the RightSidebar. Next session: rate limiting, redeploy Edge Functions, schema drift fix.
 
 | Layer | Status |
 |---|---|
-| Frontend (Next.js 14) | ✅ Complete — 3-column shell, all pages, opening splash, tree/leaves, 4-screen onboarding |
-| Onboarding profile writes | ✅ Fixed — writes `{id, auth_id, user_type, language, jurisdiction, context_answers}` |
+| Frontend (Next.js 14) | ✅ Complete — 3-column shell, all pages, 4-screen onboarding, opening splash |
+| Login / auth wiring | ✅ /login + /auth/callback + session gate + sign-out |
+| Google OAuth | ✅ Provider enabled in Supabase; end-to-end tested |
+| Email/password auth | ✅ Signup, sign-in, resetPasswordForEmail all wired |
+| Password hashing | ✅ Handled by Supabase auth (bcrypt in `auth.users.encrypted_password`) |
+| Onboarding profile writes | ✅ Writes `{id, auth_id, user_type, language, jurisdiction, context_answers}` — RLS-safe |
 | RLS isolation | ✅ Verified — all 4 public tables enforce `auth.uid()`-scoped policies |
 | Frontend conversation history | ✅ Sends last 6 turns to `ask-query` |
 | Edge Functions (code) | ✅ All 6 hardened — auth, CORS, structured outputs |
-| Edge Functions (deployed) | ⚠️ Old versions still ACTIVE on Supabase — redeploy after PR merge |
+| Edge Functions (deployed) | ⚠️ Old versions still ACTIVE on Supabase — redeploy after PRs #4 + #7 merge |
 | Shared helpers | ✅ `_shared/auth.ts`, `_shared/cors.ts` |
 | DB Schema | ✅ Applied — 4 tables with RLS |
 | API Keys (Perplexity, Groq) | ❌ Not yet set in Supabase Secrets |
 | `ALLOWED_ORIGINS` env var | ❌ Not set (defaults to `http://localhost:3000` if omitted) |
 | Rate limiting | ❌ Not implemented |
 | Vercel deployment | ❌ Not configured |
-| Login/signup screens | ❌ Anon-only today — planned for Session 7 |
 | `rls_auto_enable()` SECURITY DEFINER | ⚠️ Advisor WARN — revoke EXECUTE in a future migration |
 
 ---
@@ -57,14 +60,15 @@ supabase functions deploy ask-query classify-formulation tkdl-search mini-guide 
 
 ---
 
-## Auth model (as of Session 5)
+## Auth model (as of Session 6)
 
 - Every Edge Function calls `requireUser(req)` immediately after the OPTIONS check.
 - Accepts:
-  - Any valid Supabase JWT (anonymous session from `signInAnonymously` OR future authenticated session)
+  - Any valid Supabase JWT (email/password, Google OAuth, or leftover anon sessions)
   - Service-role key (internal function-to-function calls, e.g. `ask-query → translate`) — mapped to synthetic `{ id: 'system', is_service_role: true }` user
 - Rejects: missing header, malformed header, invalid/expired JWT → 401 `{ error: true, code: 'UNAUTHORIZED', ... }`
-- When the real login screen replaces `signInAnonymously()` with `signInWithPassword` / OAuth, zero backend change needed — `supabase.functions.invoke()` auto-attaches whatever session token exists.
+- Frontend flow: `/` → session check → `/login` (no session) OR `/onboarding` (session but no `public.users` row) OR `/app/ask` (session + profile). `/app/*` layout enforces the same gate with an `onAuthStateChange` listener so sign-out anywhere bounces to `/login`.
+- Passwords: raw pw never touches our code beyond the `supabase.auth.signUp` / `signInWithPassword` calls. Bcrypt hash lives in `auth.users.encrypted_password` — private schema, not queryable from the app.
 
 ## CORS model
 

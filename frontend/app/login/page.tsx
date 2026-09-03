@@ -289,6 +289,7 @@ function LoginPage() {
         @keyframes loginStreakRise { 0% { opacity: 0; stroke-dashoffset: 400; } 20% { opacity: 0.9; } 80% { opacity: 0.6; } 100% { opacity: 0; stroke-dashoffset: 0; } }
         .login-input::placeholder { color: #6a8a7e; }
         .login-input:focus { outline: none; }
+        html, body { background: #060b0a !important; overscroll-behavior: none; }
       `}</style>
 
       <div
