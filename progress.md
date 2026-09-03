@@ -2,6 +2,68 @@
 
 ---
 
+## Session 4 — 2026-09-03
+
+### What was done
+
+Set up the RAG source config and proper Perplexity API sourcing across all 3 Perplexity-calling Edge Functions.
+
+#### Files changed
+
+| File | Change |
+|---|---|
+| `supabase/functions/_shared/approved_sources.json` | Full rewrite — v2.0 schema with per-domain metadata (display name, category, trust tier, jurisdiction, covers), and named `filter_sets` for each Edge Function |
+| `supabase/functions/ask-query/index.ts` | Jurisdiction-aware `search_domain_filter` (india/international/both pick different domain sets); upgraded to `sonar-pro` with `sonar` fallback on 402/429; structured citation block parsing (display name + url + statute_ref extracted); `temperature: 0.1`; `model_used` field in response; DB write made non-fatal |
+| `supabase/functions/classify-formulation/index.ts` | Now uses `filter_sets.classify_formulation` instead of `all_domains` |
+| `supabase/functions/tkdl-search/index.ts` | Now imports `approved_sources.json` and uses `filter_sets.tkdl_search` |
+
+### Decisions made
+- `sonar-pro` is the primary model for `ask-query` (better legal reasoning, longer context); falls back to `sonar` on quota/billing errors — no change in latency path for demos if key is standard tier
+- Jurisdiction-aware domain filtering: India queries do not send international treaty domains to Perplexity (reduces noise); international queries don't send CDSCO/TKDL/FSSAI (irrelevant)
+- Citation parsing: we instruct the model to produce a structured `CITATIONS:` block (display_name | url | statute_ref); if absent, fall back to raw URL list enriched with domain metadata. The block is stripped before the answer is sent to the user.
+- `trips.wto.org` replaced with `wto.org` — Perplexity's domain filter requires the apex domain, not a subdomain
+
+### Pending (carry to Session 5 — backend hardening)
+
+#### API keys (Joyjit must do before any Edge Function works)
+| Secret | Where |
+|---|---|
+| `PERPLEXITY_API_KEY` | Supabase dashboard → project `nrsfljvrtsnewkbufdid` → Edge Functions → Secrets |
+| `GROQ_API_KEY` | Same |
+
+#### Redeploy after this session's changes
+```
+supabase functions deploy ask-query classify-formulation tkdl-search --project-ref nrsfljvrtsnewkbufdid
+```
+
+#### Backend bugs to fix (Session 5)
+| # | Issue | Severity | File |
+|---|---|---|---|
+| 1 | `translate` body-read bug — `req.clone()` after consumed stream silently drops translated answer | Critical | `translate/index.ts` |
+| 2 | No auth check on any function — anyone on internet can call and burn Perplexity quota | Critical | all 6 functions |
+| 3 | `escalate` trusts `userId` from request body — derive from JWT instead | Critical | `escalate/index.ts` |
+| 4 | Confidence scoring keyword-scans answer text — "may" in statutes always returns medium; parse model's own HIGH/MEDIUM/ABSTAIN output instead | Serious | `ask-query/index.ts` |
+| 5 | `classify-formulation` citations always have empty `statute_ref` | Serious | `classify-formulation/index.ts` |
+| 6 | `tkdl-search` returns one prose blob, not parsed records | Serious | `tkdl-search/index.ts` |
+| 7 | No conversation history sent to Perplexity — follow-up questions lose context | Serious | `ask-query/index.ts` |
+| 8 | `mini-guide` ignores `language` field — always returns English | Minor | `mini-guide/index.ts` |
+| 9 | `translate` fallback returns `targetLanguage: 'en'` even when request was for Hindi/Tamil/Bengali | Minor | `translate/index.ts` |
+| 10 | CORS `*` on all functions — any site can call and drain quota | Minor | all 6 functions |
+| 11 | `sonar-pro` may always fall back — confirm Joyjit's Perplexity key tier supports it | Minor | `ask-query/index.ts` |
+
+#### Architecture note
+The current system is **not a true RAG** — it is live retrieval via Perplexity Sonar with domain filtering. No vector store, no embeddings. Perplexity's crawler controls what is actually fetched. This is fine for the hackathon demo but should not be described to judges as "RAG." Correct framing: "live retrieval with approved-source filtering."
+
+#### Other pending
+| Task | Owner |
+|---|---|
+| Rate limiting on all 6 Edge Functions | Agent (Session 5) |
+| Vercel deployment | Joyjit |
+| E2E smoke test | Agent (after Perplexity key set) |
+| Onboarding screens | Joyjit (Claude Design) |
+
+---
+
 ## Session 3 — 2026-09-02 → 2026-09-03
 
 ### What was done

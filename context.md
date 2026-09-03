@@ -52,7 +52,24 @@ supabase functions deploy ask-query classify-formulation tkdl-search mini-guide 
 
 - **Rate limiting:** Not implemented on any Edge Function. Must be added before public/demo exposure. Approach TBD — simple in-function counter vs. Supabase pg_cron vs. external (Upstash Redis).
 - **Landing page:** `frontend/landing-page.html` is a separate static HTML for the hackathon submission page — not part of the Next.js app.
-- **ABS Helper:** Static decision tree (not live query). Users needing cited answers are redirected to Ask.
+- **ABS Helper:** Static decision tree (not live query). `abs_helper` filter set now exists in `approved_sources.json` if it gets wired to a live query later.
+- **Architecture framing:** The system is live retrieval via Perplexity Sonar with domain filtering — not a true RAG (no vector store). Do not describe as RAG to judges. Correct framing: "live retrieval with approved-source filtering."
+
+## Known backend bugs (fix in Session 5)
+
+| # | Severity | Issue |
+|---|---|---|
+| 1 | Critical | `translate` body-read bug silently drops answer on error |
+| 2 | Critical | No auth check on any Edge Function — open to public |
+| 3 | Critical | `escalate` trusts `userId` from request body |
+| 4 | Serious | Confidence scoring broken — keyword "may" in statutes always returns medium |
+| 5 | Serious | `classify-formulation` citations missing `statute_ref` |
+| 6 | Serious | `tkdl-search` returns one prose blob instead of parsed records |
+| 7 | Serious | No conversation history sent to Perplexity — follow-ups lose context |
+| 8 | Minor | `mini-guide` ignores language field |
+| 9 | Minor | `translate` fallback returns wrong `targetLanguage` |
+| 10 | Minor | CORS `*` on all functions |
+| 11 | Minor | `sonar-pro` tier availability unconfirmed |
 
 ---
 

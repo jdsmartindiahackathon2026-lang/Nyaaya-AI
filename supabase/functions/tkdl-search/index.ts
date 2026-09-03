@@ -2,7 +2,9 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 
 const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY')!
 
-const TKDL_DOMAINS = ['tkdl.res.in', 'indiacode.nic.in']
+import approvedSources from '../_shared/approved_sources.json' assert { type: 'json' }
+
+const TKDL_DOMAINS = approvedSources.filter_sets.tkdl_search
 
 const DISCLAIMER = 'Records shown are illustrative of TKDL and IndiaCode retrieval. The deployed system queries the official databases directly. A not-found result does not constitute freedom to operate.'
 
