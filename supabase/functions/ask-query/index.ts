@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { requireUser } from '../_shared/auth.ts'
 import { corsHeaders, handleOptions } from '../_shared/cors.ts'
+import { requireRateLimit } from '../_shared/rate_limit.ts'
 import approvedSources from '../_shared/approved_sources.json' assert { type: 'json' }
 
 const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY')!
@@ -150,6 +151,9 @@ serve(async (req) => {
   const authResult = await requireUser(req)
   if ('error' in authResult) return authResult.error
   const { user, supabase } = authResult
+
+  const rateLimited = await requireRateLimit(req, supabase, user, 'ask-query')
+  if (rateLimited) return rateLimited
 
   try {
     const { query, jurisdiction, language, userType, conversationId, history: rawHistory } = await req.json()
