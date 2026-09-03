@@ -221,3 +221,10 @@ a:hover { color: var(--accent-hi); }
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 3px; }
+
+@keyframes slideInRight { from { opacity: 0; transform: translateX(24px) } to { opacity: 1; transform: none } }
+@keyframes confettiFall {
+  0%   { opacity: 0; transform: translate(0,0) scale(0.5) rotate(0deg) }
+  20%  { opacity: 1 }
+  100% { opacity: 0; transform: translate(var(--dx,0), var(--dy,60px)) scale(1) rotate(360deg) }
+}

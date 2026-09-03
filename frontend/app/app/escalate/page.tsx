@@ -1,5 +1,6 @@
 'use client'
-import { useState } from 'react'
+import { Suspense, useState, useEffect, useRef } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 
 const ISSUE_TYPES = [
@@ -13,7 +14,18 @@ const ISSUE_TYPES = [
 
 const URGENCY_OPTS = ['Informational', 'Low', 'Medium', 'High']
 
-export default function EscalatePage() {
+export default function EscalatePageWrapper() {
+  return (
+    <Suspense fallback={null}>
+      <EscalatePage />
+    </Suspense>
+  )
+}
+
+function EscalatePage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const hydrated = useRef(false)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [issueType, setIssueType] = useState('')
@@ -22,6 +34,21 @@ export default function EscalatePage() {
   const [loading, setLoading] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (hydrated.current) return
+    hydrated.current = true
+    const summary = searchParams?.get('summary')
+    const issueTypeParam = searchParams?.get('issueType')
+    if (summary) setDescription(decodeURIComponent(summary))
+    if (issueTypeParam && ISSUE_TYPES.includes(decodeURIComponent(issueTypeParam))) {
+      setIssueType(decodeURIComponent(issueTypeParam))
+    }
+    if (summary || issueTypeParam) {
+      router.replace('/app/escalate', { scroll: false })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
