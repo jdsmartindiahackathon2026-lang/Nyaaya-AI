@@ -2,6 +2,54 @@
 
 ---
 
+## Session 6 — 2026-09-03
+
+### What was done
+
+Built the 4-screen onboarding flow from the Claude Design handoff and fixed a silent RLS-blocking bug in the `users` upsert that would have prevented any onboarded profile from actually landing in Supabase.
+
+Branch: `feature/onboarding-4-screens` → PR [#5](https://github.com/jdsmartindiahackathon2026-lang/Nyaaya-AI/pull/5) (open, awaiting Joyjit merge).
+
+#### Files created
+| File | Purpose |
+|---|---|
+| `frontend/components/OnboardingBackground.tsx` | Shared background layer for all 4 onboarding screens — radial gradient, tree watermark (`/tree-logo-full.png`), two glow washes, 22 randomized drifting leaf SVGs (`useMemo`'d once), inline `<filter id="gooeyReveal">` for title reveals |
+| `frontend/public/tree-logo-full.png` | Yggdrasil watermark asset copied from design handoff |
+
+#### Files modified
+| File | Change |
+|---|---|
+| `frontend/app/onboarding/page.tsx` | Fully replaced. Single-file 4-screen client component: Language (EN/HI/BN) → Who Are You (4 roles) → Context Questions (role-branched) → Session Summary. `useEffect` short-circuits to `/app/ask` if `localStorage.nyaaya_onboarded === '1'`. Screen 4 CTA is the ONLY place that runs `signInAnonymously` + `users` upsert. **Bug fix:** old upsert wrote `{ id: authUid, preferred_language }` — `preferred_language` doesn't exist and leaving `auth_id` NULL fails the `auth.uid() = auth_id` RLS check. New upsert writes `{ id: authUid, auth_id: authUid, user_type, language, jurisdiction: 'india', context_answers }`. |
+| `frontend/components/AppHeader.tsx` | Removed India/International toggle. Replaced with fixed non-interactive `Jurisdiction · India` label. `jurisdiction` + `onJurisdictionChange` props kept in interface (call sites still pass them) but unread. |
+| `frontend/app/globals.css` | Added keyframes: `leafDrift`, `cardZoomIn`, `gooeyIn`, `tooltipBounce`, `tooltipText`. |
+
+#### Security verification
+- All 4 public tables (`users`, `conversations`, `messages`, `escalations`) have RLS enabled with correct `auth.uid()`-scoped policies. Verified via Supabase MCP.
+- One advisor warning noted (WARN, not blocking): `public.rls_auto_enable()` is SECURITY DEFINER and callable by anon/authenticated. Revoke `EXECUTE` in a future migration.
+
+### Verified
+- `npx next build` — 8 routes compile clean, 0 errors
+- Dev server running at http://localhost:3000/ (`/onboarding` route confirmed reachable)
+
+### Decisions made
+- **Languages:** 3 as designed (EN/HI/BN). Tamil intentionally excluded from onboarding (still available in-app LeftSidebar for the mini-guide, but users profile only stores EN/HI/BN — matches existing DB CHECK constraint).
+- **Jurisdiction:** hardcoded to India everywhere it is user-visible. AppHeader toggle removed. Session 4-onwards decision.
+- **Returning users:** skip onboarding via `localStorage.nyaaya_onboarded` flag.
+- **`id = auth_id` in users row:** avoided needing a new unique constraint on `auth_id` (a DDL migration was blocked by the classifier); reused the existing `id` PK. Both columns now hold the auth UID — the FK to `auth.users(id)` on `auth_id` and the RLS check both work.
+
+### Pending (carry to Session 7 — Auth + Login)
+| Task | Owner | Notes |
+|---|---|---|
+| Design + build login/signup screens | Agent + Joyjit | Replaces `signInAnonymously` with real Supabase auth (email + password / OAuth TBD) |
+| Wire login → profile-exists check → onboarding gate | Agent | If `users` row exists for the auth user, skip onboarding; otherwise run the 4 screens. |
+| Revoke EXECUTE on `public.rls_auto_enable()` | Agent | Advisor WARN — one-line migration |
+| Rate limiting on all 6 Edge Functions | Agent | Still open from Session 5 |
+| Set `PERPLEXITY_API_KEY` + `GROQ_API_KEY` in Supabase Secrets | Joyjit | Still open |
+| Vercel deployment | Joyjit | Still open |
+| E2E smoke test | Agent (after keys) | Still open |
+
+---
+
 ## Session 5 — 2026-09-03
 
 ### What was done

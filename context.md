@@ -1,16 +1,18 @@
 # Context — Nyaaya AI / IP-SAKTI
 
-_Last updated: Session 5 — 2026-09-03_
+_Last updated: Session 6 — 2026-09-03_
 
 ---
 
 ## Current state
 
-All 11 backend bugs from the Session 4 audit are fixed on branch `fix/backend-criticals-session-5`. Every Edge Function now enforces JWT auth (shared `_shared/auth.ts`), uses origin-allowlisted CORS (shared `_shared/cors.ts`), and produces structured output where relevant. Next session: rate limiting, deploy, E2E smoke test.
+4-screen onboarding flow (Language → Who Are You → Context Questions → Session Summary) shipped on branch `feature/onboarding-4-screens` (PR #5, open). Fixed a silent bug where the `users` upsert was writing a non-existent `preferred_language` column and leaving `auth_id` NULL — which RLS would reject; profile writes now land correctly and are isolated per user. Jurisdiction hardcoded to India end-to-end. Next session: real login/signup screens replacing `signInAnonymously`.
 
 | Layer | Status |
 |---|---|
-| Frontend (Next.js 14) | ✅ Complete — 3-column shell, all pages, opening splash, tree/leaves |
+| Frontend (Next.js 14) | ✅ Complete — 3-column shell, all pages, opening splash, tree/leaves, 4-screen onboarding |
+| Onboarding profile writes | ✅ Fixed — writes `{id, auth_id, user_type, language, jurisdiction, context_answers}` |
+| RLS isolation | ✅ Verified — all 4 public tables enforce `auth.uid()`-scoped policies |
 | Frontend conversation history | ✅ Sends last 6 turns to `ask-query` |
 | Edge Functions (code) | ✅ All 6 hardened — auth, CORS, structured outputs |
 | Edge Functions (deployed) | ⚠️ Old versions still ACTIVE on Supabase — redeploy after PR merge |
@@ -20,7 +22,8 @@ All 11 backend bugs from the Session 4 audit are fixed on branch `fix/backend-cr
 | `ALLOWED_ORIGINS` env var | ❌ Not set (defaults to `http://localhost:3000` if omitted) |
 | Rate limiting | ❌ Not implemented |
 | Vercel deployment | ❌ Not configured |
-| Login screen | ❌ Anon-only today; login flow deferred |
+| Login/signup screens | ❌ Anon-only today — planned for Session 7 |
+| `rls_auto_enable()` SECURITY DEFINER | ⚠️ Advisor WARN — revoke EXECUTE in a future migration |
 
 ---
 
