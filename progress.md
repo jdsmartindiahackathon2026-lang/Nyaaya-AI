@@ -2,6 +2,68 @@
 
 ---
 
+## Session 8 — 2026-09-04
+
+### What was done
+
+Built and shipped the ABS Compliance Wizard end-to-end. PR [#9](https://github.com/jdsmartindiahackathon2026-lang/Nyaaya-AI/pull/9) merged to `main` (merge commit `c9392fd`). Execution plan: Opus 4.7 planned and coordinated; three Sonnet 4.6 subagents executed Tracks A/B/D in parallel, Track C followed once Track B landed.
+
+#### Files created
+| File | Purpose |
+|---|---|
+| `supabase/migrations/20260904000000_abs_diagnoses.sql` | New `public.abs_diagnoses` table — `{id, user_id FK→users.id, answers JSONB, obligations JSONB, obligation_count INT, created_at}` with user-scoped RLS matching the escalations pattern. Applied to remote via Supabase MCP. |
+| `frontend/lib/abs_logic.ts` | Pure logic module — 246 lines, zero React. Exports: `AbsAnswers` / `Question` / `Obligation` / `AbsResult` types, `QUESTIONS` constant, `nextQuestion`, `skippedQuestions`, `deriveObligations`, `buildResult`, `buildAskQuery`, `buildEscalateSummary`. |
+| `frontend/components/ABSMemoPDF.tsx` | jsPDF-based memo generator (~103 lines). Lazy-loaded — only imported when user clicks Download. Renders title/date/headline/intro/checklist/disclaimer in A4 with black-on-white. |
+
+#### Files modified
+| File | Change |
+|---|---|
+| `frontend/app/app/abs/page.tsx` | Full rewrite (~648 lines). `useReducer` state machine with `loading / start / question / result` modes. On mount, fetches latest `abs_diagnoses` row for the user — if present, jumps to memo. Progress bar, answered-row summary stack, `slideInRight` question card, floating live obligation counter with `gooeyIn` on tick-up + threshold colour shifts (grey→amber→accent), confetti burst on completion. Actions: Save (inserts new diagnosis row), Download PDF, Escalate (deep-links with `?summary=` + `?issueType=`), "Ask about this" per obligation (deep-links with `?q=`), Retake. Reference-view accordion preserved at bottom. |
+| `frontend/app/app/ask/page.tsx` | Wrapped in `<Suspense>` + reads `?q=<url-encoded>` on mount; auto-populates textarea, calls `sendQuery`, clears param via `router.replace`. `autoSentRef` guard prevents re-fire. |
+| `frontend/app/app/escalate/page.tsx` | Wrapped in `<Suspense>` + reads `?summary=` and `?issueType=` on mount. Populates `description` state and (when matching an existing option) `issueType` state. Clears params after hydration. |
+| `frontend/app/globals.css` | Appended 2 keyframes: `slideInRight`, `confettiFall`. All other motion reuses existing `glowPulse` / `cardZoomIn` / `gooeyIn` / `riseIn` / `leafDrift`. |
+| `frontend/package.json` + `package-lock.json` | Added `jspdf@4.2.1`. |
+
+### Decisions made
+
+- **Persistence storage:** `public.abs_diagnoses` table (Option B from the pros/cons), NOT a JSONB column on `users`. Ayurveda practitioners will run the wizard once per formulation/client/export market — history matters. One row per run, `created_at DESC` on read gives the latest. Overwrites are impossible; retake = new row. Sets the pattern for future `classify_results` / `tkdl_searches` tables when we cache Perplexity calls.
+- **Result reconstruction on revisit:** always rebuild `AbsResult` fresh via `buildResult(row.answers)` — never trust the stored `obligations` blob. Means logic-side updates (new statute anchors, added obligations) auto-propagate to old saved diagnoses.
+- **Save is opt-in, not automatic.** User must click "Save to profile" — matches the "no data leaves your browser until you save" copy on the start screen. Honest and privacy-preserving.
+- **Deep-link auto-send on Ask:** `?q=` doesn't just populate — it auto-sends and clears the param. Zero clicks between wizard obligation and answered question.
+- **Deferred:** Q1=No path visual — spec called for greyed-out skipped questions collapsing into a single "3 questions skipped" pill. Implemented as a summary row per `skippedQuestions()` — same information, simpler UI.
+
+### Verified
+
+- `next build` clean — 12 routes, 0 errors, `/app/abs` = 6.9 kB.
+- Migration `abs_diagnoses_table` applied via Supabase MCP; `list_tables` confirms RLS on. No new advisor warnings.
+- Local browser test: Joyjit ran full wizard, hit "Ask about this" on a memo obligation, navigated to `/app/ask?q=...` with question pre-filled and auto-sent. First attempt hit stale Next dev-cache after adding jspdf (`webpack-runtime.js: Cannot read properties of undefined (reading 'call')`) — fixed by `Remove-Item -Recurse -Force .next` + restart on port 3001.
+
+### Delivery process notes
+
+- **Multi-agent orchestration worked well.** Opus planning + parallel Sonnet execution shipped the whole feature in one session including a live bugfix cycle. Track split (A: DB, B: logic, C: UI, D: cross-page) had exactly one true dependency (C→B); everything else parallel-safe.
+- **Track C subagent committed itself** (`6838fd6`) without waiting for the coordinator. Committed the UI while abs_logic.ts (imported dependency) was still untracked. Not broken in the final tree because subsequent commits closed the gap and we squash-merge PRs, but noting: subagent commit discipline is worth explicit prompting next time.
+- **Windows PowerShell footguns hit twice.** `&&` isn't valid in PS 5.1 (use `;`), and `npm.ps1` is execution-policy-blocked (use `npm.cmd`). Baked into Joyjit's environment — worth remembering for future dev-server restart instructions.
+
+### Pending (carry to Session 9)
+
+| Task | Owner |
+|---|---|
+| Set `PERPLEXITY_API_KEY` in Supabase Secrets | Joyjit — still blocking Ask/TKDL/Classify-citations |
+| Vercel deploy + `NEXT_PUBLIC_*` env vars + branch protection on `main` | Joyjit |
+| After Vercel live: add domain to `ALLOWED_ORIGINS`, Google OAuth redirect URIs, Supabase Site URL | Joyjit |
+| E2E smoke test (Browser pane, once Perplexity key set) | Agent |
+| Hybrid RAG plan execution (10 core acts + pgvector) | Agent |
+| Conversation persistence (revive dead `messages` insert + New Chat UI) | Agent |
+| Small polish: tree logo above `/login` heading | Agent (chip spawned earlier) |
+| Kill the zombie dev server on port 3000 (currently displaced to 3001) | Joyjit — cosmetic |
+
+### Known gaps / risks
+
+- Same as Session 7 close: Perplexity key + Vercel are the only demo blockers.
+- ABS Wizard obligation counter's amber colour is inline `rgba(217,180,127,0.9)` rather than a new CSS var — if theme evolves, move to `--warn`.
+
+---
+
 ## Session 7 — 2026-09-03
 
 ### What was done

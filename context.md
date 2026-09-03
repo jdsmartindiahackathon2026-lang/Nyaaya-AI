@@ -1,12 +1,12 @@
 # Context — Nyaaya AI / IP-SAKTI
 
-_Last updated: Session 7 — 2026-09-04_
+_Last updated: Session 8 — 2026-09-04_
 
 ---
 
 ## Current state
 
-Everything shipped this session lives on `main`. PRs #7 (login + auth) and #8 (rate limiting + schema drift + advisor fix) both merged. All 6 Edge Functions redeployed to v2 ACTIVE. Migrations applied to remote: Tamil accepted in `users.language`, `rls_auto_enable()` EXECUTE revoked, `rate_limits` table + `check_rate_limit()` RPC live. Supabase Auth policy tightened. Google OAuth + email/password both verified end-to-end. Ask/TKDL/Classify-citations still 503 until Joyjit sets `PERPLEXITY_API_KEY`. Local dev fully working. Next session: Perplexity key → Vercel deploy → E2E smoke.
+ABS Compliance Wizard shipped in Session 8. PR [#9](https://github.com/jdsmartindiahackathon2026-lang/Nyaaya-AI/pull/9) merged to `main` (merge commit `c9392fd`). New `public.abs_diagnoses` table applied to remote with user-scoped RLS; local browser test passed after clearing stale `.next` cache. `/app/abs` is now an interactive branching wizard with live obligation counter, personalised memo, jsPDF download, and deep-links into Ask (`?q=`) + Escalate (`?summary=`). Everything else from Session 7 still holds — PRs #7/#8 merged, all 6 Edge Functions v2 ACTIVE, migrations applied, Google OAuth working. Ask/TKDL/Classify-citations still 503 until Joyjit sets `PERPLEXITY_API_KEY`. Next session: Perplexity key → Vercel deploy → E2E smoke.
 
 | Layer | Status |
 |---|---|
@@ -124,5 +124,18 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon key from Supabase dashboard>
 - `conversations` — session grouping (unused by ask-query currently)
 - `messages` — Q&A records (dead code path in ask-query — gated on `conversationId`)
 - `escalations` — human escalation requests
+- `abs_diagnoses` — one row per ABS Wizard completion (`answers`, `obligations`, `obligation_count`). Latest read via `ORDER BY created_at DESC LIMIT 1`. Never overwritten — retake = new row. Establishes the pattern for future per-feature result tables.
+- `rate_limits` — per-user-per-minute counters (Session 7).
 
 All tables have RLS enabled.
+
+---
+
+## ABS Wizard (`/app/abs`)
+
+- **Pure logic:** `frontend/lib/abs_logic.ts` — 5-question matrix, `nextQuestion()` branching (Q1=No skips Q2/Q3/Q4), `deriveObligations()`, `buildResult()`, `buildAskQuery()`, `buildEscalateSummary()`.
+- **UI:** `frontend/app/app/abs/page.tsx` — `useReducer` state machine (`loading|start|question|result`), progress bar, live counter with `gooeyIn` tick-up, confetti on completion, actions: Save / Download PDF / Escalate / Ask about this / Retake.
+- **PDF export:** `frontend/components/ABSMemoPDF.tsx` — lazy-loaded jsPDF (`@4.2.1`), A4 black-on-white memo.
+- **Persistence:** save is opt-in. On revisit, latest saved diagnosis loads directly into the memo screen; Retake starts a fresh run. Always rebuild `AbsResult` from stored `answers` (never trust stored `obligations`) so logic updates propagate.
+- **Deep-links:** memo → `/app/ask?q=<question>` auto-sends; memo → `/app/escalate?summary=<text>&issueType=ABS+clearance+guidance` pre-fills.
+- **Cost:** zero API calls. Runs even if Edge Functions are down.
