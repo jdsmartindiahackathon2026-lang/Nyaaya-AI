@@ -1,12 +1,12 @@
 # Context — Nyaaya AI / IP-SAKTI
 
-_Last updated: Session 6 — 2026-09-03_
+_Last updated: Session 7 — 2026-09-04_
 
 ---
 
 ## Current state
 
-Login + full Supabase auth wiring landed on branch `feature/login-and-auth-wiring` (PR #7). Email/password + Google OAuth both working end-to-end after Joyjit enabled the Google provider in Supabase dashboard. Onboarding no longer uses `signInAnonymously()` — it now runs against a real authed session. `/app/*` is session-gated; sign-out lives in the RightSidebar. Next session: rate limiting, redeploy Edge Functions, schema drift fix.
+Everything shipped this session lives on `main`. PRs #7 (login + auth) and #8 (rate limiting + schema drift + advisor fix) both merged. All 6 Edge Functions redeployed to v2 ACTIVE. Migrations applied to remote: Tamil accepted in `users.language`, `rls_auto_enable()` EXECUTE revoked, `rate_limits` table + `check_rate_limit()` RPC live. Supabase Auth policy tightened. Google OAuth + email/password both verified end-to-end. Ask/TKDL/Classify-citations still 503 until Joyjit sets `PERPLEXITY_API_KEY`. Local dev fully working. Next session: Perplexity key → Vercel deploy → E2E smoke.
 
 | Layer | Status |
 |---|---|
@@ -19,10 +19,12 @@ Login + full Supabase auth wiring landed on branch `feature/login-and-auth-wirin
 | RLS isolation | ✅ Verified — all 4 public tables enforce `auth.uid()`-scoped policies |
 | Frontend conversation history | ✅ Sends last 6 turns to `ask-query` |
 | Edge Functions (code) | ✅ All 6 hardened — auth, CORS, structured outputs |
-| Edge Functions (deployed) | ⚠️ Old versions still ACTIVE on Supabase — redeploy after PRs #4 + #7 merge |
+| Edge Functions (deployed) | ✅ All 6 redeployed to v2 ACTIVE (Session 7, via Supabase MCP) |
+| Rate limiting | ✅ Live — per-user-per-minute caps via Postgres RPC. Caps: Ask/Classify/TKDL=20, mini-guide=30, translate=60, escalate=5 |
 | Shared helpers | ✅ `_shared/auth.ts`, `_shared/cors.ts` |
 | DB Schema | ✅ Applied — 4 tables with RLS |
-| API Keys (Perplexity, Groq) | ❌ Not yet set in Supabase Secrets |
+| `GROQ_API_KEY` | ✅ Set (Session 7 — mini-guide works end-to-end) |
+| `PERPLEXITY_API_KEY` | ❌ Not yet set — Ask/TKDL/Classify-citations return 503 until Joyjit adds it |
 | `ALLOWED_ORIGINS` env var | ❌ Not set (defaults to `http://localhost:3000` if omitted) |
 | Rate limiting | ❌ Not implemented |
 | Vercel deployment | ❌ Not configured |
@@ -101,7 +103,9 @@ Parsing:
 - **Landing page:** `frontend/landing-page.html` is separate static HTML for the hackathon submission — not part of the Next.js app.
 - **ABS Helper:** Static decision tree. `abs_helper` filter set exists in `approved_sources.json` if wired later.
 - **Architecture framing:** Live retrieval via Perplexity Sonar with domain filtering — NOT a true RAG. Do not describe as RAG to judges. Correct: "live retrieval with approved-source filtering."
-- **Schema drift:** DB `users.language` CHECK allows only `('en','hi','bn')` but frontend also offers Tamil (`ta`). Migration needed if we keep the check constraint. Session 6.
+- **Schema drift:** ✅ Resolved Session 7. `users.language` CHECK now accepts `('en','hi','bn','ta')`.
+- **ABS Wizard:** design PDF delivered Session 7 (`scratchpad/ABS_Wizard_Design.pdf`). Build pending user go-ahead. Would turn the static /app/abs reference into a branching diagnostic ending in a personalised checklist. Fully client-side, zero API cost.
+- **Screen report for SIH presenters:** delivered Session 7 (`scratchpad/Nyaaya_AI_Screen_Report.pdf`). 13 pages — every screen + judge FAQ + honest limitations.
 
 ---
 

@@ -46,19 +46,31 @@ Full login + auth wiring landed on branch `feature/login-and-auth-wiring` — PR
 | Docs (top-level `*.md`) | 2,175 |
 | **Total (code + docs)** | **6,416** |
 
+### Session 7 close (2026-09-04)
+
+Continued on 2026-09-04 (calendar day rolled during the session). Landed:
+- PR #7 (login + auth) merged.
+- PR #8 (rate limiting + schema drift + advisor fix) opened and merged.
+- Migrations applied to remote: `users_language_allow_tamil`, `revoke_execute_rls_auto_enable`, `rate_limits_table_and_rpc`.
+- All 6 Edge Functions redeployed to v2 ACTIVE via Supabase MCP (CLI wasn't logged in; deployed each function with inlined shared files).
+- Supabase Auth policy tightened by Joyjit: min password length 8, char-class rule (lower+upper+digit+symbol), Secure email change on. HIBP leaked-pw deferred (Pro-plan gated).
+- Google OAuth verified end-to-end after Joyjit enabled the provider.
+- `GROQ_API_KEY` confirmed set. `PERPLEXITY_API_KEY` still pending.
+- ABS Wizard design PDF delivered (`scratchpad/ABS_Wizard_Design.pdf`) — awaiting go-ahead to build. Memory entry `project_abs_wizard.md` created.
+- Full screen-by-screen technical report PDF delivered to Joyjit (`scratchpad/Nyaaya_AI_Screen_Report.pdf`) for the SIH internal round presenters — 13 pages, covers every screen + judge FAQ + caveats + roadmap.
+
 ### Pending (carry to Session 8)
 | Task | Owner |
 |---|---|
-| Merge PR #7 | Joyjit |
-| Redeploy all 6 Edge Functions | Joyjit / Agent (after PR merge) |
-| Rate limiting on all 6 Edge Functions | Agent |
-| Schema drift — relax `users.language` CHECK to include `ta` | Agent |
-| Revoke EXECUTE on `public.rls_auto_enable()` (carried from Session 6) | Agent |
-| Vercel deployment + branch protection on `main` | Joyjit |
-| Google OAuth authorized redirect URIs updated for Vercel domain when live | Joyjit |
-| Supabase Auth "Site URL" pointed at Vercel domain when live | Joyjit |
+| Set `PERPLEXITY_API_KEY` in Supabase Secrets | Joyjit — unblocks Ask, TKDL, Classify-citations |
+| Vercel deploy + `NEXT_PUBLIC_*` env vars + branch protection on `main` | Joyjit |
+| After Vercel live: add domain to `ALLOWED_ORIGINS`, Google OAuth redirect URIs, Supabase Site URL | Joyjit |
+| E2E smoke test (Browser pane, once Perplexity key set) | Agent |
+| ABS Wizard build (design PDF ready) | Agent — pending user go-ahead |
 | Hybrid RAG plan execution (10 core acts + pgvector) | Agent |
-| Small polish: add tree logo above `/login` heading | Agent |
+| Conversation persistence (revive dead `messages` insert + New Chat UI) | Agent |
+| Small polish: add tree logo above `/login` heading | Agent (chip spawned) |
+| Optional: commit or discard uncommitted `/login` vignette defensive fix in working tree | Agent — currently discarded |
 
 ### Known gaps / risks
 - Rate limiting still absent on all 6 Edge Functions — must land before public exposure.
