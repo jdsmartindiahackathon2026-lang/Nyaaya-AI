@@ -312,7 +312,7 @@ function LoginPage() {
         </div>
 
         {/* Vertical gradient */}
-        <div style={{ position: 'absolute', inset: 0, zIndex: 1, background: 'linear-gradient(180deg, rgba(5,10,9,0.55) 0%, rgba(5,10,9,0.35) 40%, rgba(4,9,8,0.75) 100%)' }} />
+        <div style={{ position: 'absolute', inset: 0, zIndex: 1, background: 'linear-gradient(180deg, rgba(5,10,9,0.7) 0%, rgba(5,10,9,0.45) 40%, rgba(4,9,8,0.85) 100%)' }} />
 
         {/* Radial aura */}
         <div style={{ position: 'absolute', inset: 0, zIndex: 1, pointerEvents: 'none', background: 'radial-gradient(ellipse 55% 45% at 50% 32%, rgba(95,240,196,0.22), transparent 70%)', animation: 'loginTreeAura 6s ease-in-out infinite' }} />
@@ -389,7 +389,7 @@ function LoginPage() {
         </div>
 
         {/* Vignette */}
-        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 3, boxShadow: 'inset 0 0 200px 60px rgba(0,0,0,0.6)' }} />
+        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 3, boxShadow: 'inset 0 0 400px 120px rgba(0,0,0,0.75)' }} />
 
         {/* Card */}
         <div style={{ position: 'relative', zIndex: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 28, maxWidth: 400, width: '100%', animation: 'loginRiseIn 500ms cubic-bezier(0.22,1,0.36,1) both' }}>
