@@ -84,7 +84,7 @@ serve(async (req) => {
             { role: 'system', content: 'You are a legal citation assistant. Return only the most relevant statute sections and official source URLs for the classification given. Be concise.' },
             { role: 'user', content: `Find key statute citations for: ${result.label} under Indian IP and drug regulatory law.` }
           ],
-          search_domain_filter: approvedSources.all_domains,
+          search_domain_filter: approvedSources.filter_sets.classify_formulation,
           return_citations: true
         })
       })

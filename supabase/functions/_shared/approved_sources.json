@@ -1,29 +1,206 @@
 {
-  "approved_sources": {
-    "patents": ["ipindia.gov.in", "eipo.gov.in"],
-    "ayush_regulations": ["ayush.gov.in", "cdsco.gov.in", "indianpharmacycouncil.org"],
-    "biodiversity_abs": ["nbaindia.org", "cbd.int"],
-    "international_ip": ["wipo.int", "trips.wto.org"],
-    "indian_legislation": ["indiacode.nic.in", "egazette.gov.in"],
-    "traditional_knowledge": ["tkdl.res.in"],
-    "fssai_food": ["fssai.gov.in"],
-    "drug_regulatory": ["cdsco.gov.in"],
-    "plant_variety": ["plantauthority.gov.in"]
+  "meta": {
+    "version": "2.1",
+    "description": "Approved source registry for Nyaaya AI / IP-SAKTI. All Perplexity search_domain_filter arrays and citation display names are derived from this file.",
+    "trust_tiers": {
+      "primary": "Official government portals and treaty bodies — highest authority",
+      "secondary": "Statutory databases and official gazette — legislative authority",
+      "reference": "Regulatory guidance portals — authoritative but may lag enactments"
+    }
   },
-  "all_domains": [
-    "ipindia.gov.in",
-    "eipo.gov.in",
-    "ayush.gov.in",
-    "cdsco.gov.in",
-    "indianpharmacycouncil.org",
-    "nbaindia.org",
-    "cbd.int",
-    "wipo.int",
-    "trips.wto.org",
-    "indiacode.nic.in",
-    "egazette.gov.in",
-    "tkdl.res.in",
-    "fssai.gov.in",
-    "plantauthority.gov.in"
-  ]
+
+  "domains": {
+    "ipindia.gov.in": {
+      "display": "IP India (CGPDTM)",
+      "category": "patents_tm_designs",
+      "tier": "primary",
+      "jurisdiction": "india",
+      "covers": ["patents", "trademarks", "designs", "geographical_indications"]
+    },
+    "eipo.gov.in": {
+      "display": "e-IPO Portal",
+      "category": "patents_tm_designs",
+      "tier": "primary",
+      "jurisdiction": "india",
+      "covers": ["patents", "trademarks", "designs", "filings"]
+    },
+    "ayush.gov.in": {
+      "display": "Ministry of AYUSH",
+      "category": "ayush_regulations",
+      "tier": "primary",
+      "jurisdiction": "india",
+      "covers": ["ayurveda_policy", "classical_formulations", "ayush_drug_rules"]
+    },
+    "cdsco.gov.in": {
+      "display": "CDSCO",
+      "category": "drug_regulatory",
+      "tier": "primary",
+      "jurisdiction": "india",
+      "covers": ["drug_approvals", "new_drug", "clinical_trials", "manufacturing_licences", "schedule_y"]
+    },
+    "nbaindia.org": {
+      "display": "National Biodiversity Authority",
+      "category": "biodiversity_abs",
+      "tier": "primary",
+      "jurisdiction": "india",
+      "covers": ["abs_compliance", "biodiversity_act", "access_and_benefit_sharing", "nagoya_india"]
+    },
+    "cbd.int": {
+      "display": "CBD Secretariat",
+      "category": "biodiversity_abs",
+      "tier": "primary",
+      "jurisdiction": "international",
+      "covers": ["convention_on_biological_diversity", "nagoya_protocol", "abs_international"]
+    },
+    "wipo.int": {
+      "display": "WIPO",
+      "category": "international_ip",
+      "tier": "primary",
+      "jurisdiction": "international",
+      "covers": ["pct", "madrid_system", "hague", "traditional_knowledge_framework", "wipo_treaties"]
+    },
+    "wto.org": {
+      "display": "WTO / TRIPS",
+      "category": "international_ip",
+      "tier": "primary",
+      "jurisdiction": "international",
+      "covers": ["trips_agreement", "geographical_indications_international", "patent_flexibilities"]
+    },
+    "indiacode.nic.in": {
+      "display": "India Code",
+      "category": "indian_legislation",
+      "tier": "secondary",
+      "jurisdiction": "india",
+      "covers": ["all_central_acts", "patents_act_1970", "trademarks_act_1999", "designs_act_2000", "copyright_act_1957", "biodiversity_act_2002", "drugs_cosmetics_act_1940", "plant_variety_act_2001", "geographical_indications_act_1999"]
+    },
+    "egazette.gov.in": {
+      "display": "e-Gazette of India",
+      "category": "indian_legislation",
+      "tier": "secondary",
+      "jurisdiction": "india",
+      "covers": ["official_gazette_notifications", "statutory_rules", "amendments"]
+    },
+    "tkdl.res.in": {
+      "display": "TKDL (CSIR)",
+      "category": "traditional_knowledge",
+      "tier": "primary",
+      "jurisdiction": "india",
+      "covers": ["traditional_knowledge_digital_library", "tkdl_prior_art", "classical_texts_digitised"]
+    },
+    "fssai.gov.in": {
+      "display": "FSSAI",
+      "category": "food_nutraceutical",
+      "tier": "primary",
+      "jurisdiction": "india",
+      "covers": ["ayurveda_aahar", "nutraceuticals", "food_safety", "fssai_regulations", "label_claims"]
+    },
+    "plantauthority.gov.in": {
+      "display": "Plant Variety Authority (PPVFRA)",
+      "category": "plant_variety",
+      "tier": "primary",
+      "jurisdiction": "india",
+      "covers": ["plant_variety_protection", "farmers_rights", "plant_breeders_rights"]
+    },
+    "niti.gov.in": {
+      "display": "NITI Aayog",
+      "category": "policy",
+      "tier": "reference",
+      "jurisdiction": "india",
+      "covers": ["ayush_policy_documents", "ip_policy", "biodiversity_strategy"]
+    },
+    "pib.gov.in": {
+      "display": "Press Information Bureau",
+      "category": "policy",
+      "tier": "reference",
+      "jurisdiction": "india",
+      "covers": ["official_government_announcements", "regulatory_updates"]
+    },
+    "indianpharmacycouncil.org": {
+      "display": "Pharmacy Council of India",
+      "category": "drug_regulatory",
+      "tier": "reference",
+      "jurisdiction": "india",
+      "covers": ["pharmacy_practice", "drug_standards"]
+    },
+  },
+
+  "filter_sets": {
+    "ask_query_india": [
+      "ipindia.gov.in",
+      "eipo.gov.in",
+      "ayush.gov.in",
+      "cdsco.gov.in",
+      "nbaindia.org",
+      "indiacode.nic.in",
+      "egazette.gov.in",
+      "tkdl.res.in",
+      "fssai.gov.in",
+      "plantauthority.gov.in",
+      "niti.gov.in",
+      "pib.gov.in"
+    ],
+    "ask_query_international": [
+      "wipo.int",
+      "wto.org",
+      "cbd.int",
+      "indiacode.nic.in",
+      "nbaindia.org"
+    ],
+    "ask_query_both": [
+      "ipindia.gov.in",
+      "eipo.gov.in",
+      "ayush.gov.in",
+      "cdsco.gov.in",
+      "nbaindia.org",
+      "cbd.int",
+      "wipo.int",
+      "wto.org",
+      "indiacode.nic.in",
+      "egazette.gov.in",
+      "tkdl.res.in",
+      "fssai.gov.in",
+      "plantauthority.gov.in",
+      "niti.gov.in",
+      "pib.gov.in"
+    ],
+    "classify_formulation": [
+      "cdsco.gov.in",
+      "ayush.gov.in",
+      "indiacode.nic.in",
+      "fssai.gov.in",
+      "ipindia.gov.in",
+      "egazette.gov.in"
+    ],
+    "tkdl_search": [
+      "tkdl.res.in",
+      "indiacode.nic.in",
+      "ayush.gov.in"
+    ],
+    "all_domains": [
+      "ipindia.gov.in",
+      "eipo.gov.in",
+      "ayush.gov.in",
+      "cdsco.gov.in",
+      "nbaindia.org",
+      "cbd.int",
+      "wipo.int",
+      "wto.org",
+      "indiacode.nic.in",
+      "egazette.gov.in",
+      "tkdl.res.in",
+      "fssai.gov.in",
+      "plantauthority.gov.in",
+      "niti.gov.in",
+      "pib.gov.in",
+      "indianpharmacycouncil.org"
+    ],
+    "abs_helper": [
+      "nbaindia.org",
+      "cbd.int",
+      "wipo.int",
+      "indiacode.nic.in",
+      "egazette.gov.in",
+      "ayush.gov.in"
+    ]
+  }
 }
