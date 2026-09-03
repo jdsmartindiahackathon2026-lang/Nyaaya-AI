@@ -2,6 +2,64 @@
 
 ---
 
+## Session 5 — 2026-09-03
+
+### What was done
+
+Fixed all 11 backend bugs identified in the Session 4 audit. Branch: `fix/backend-criticals-session-5` off `feature/frontend-app-shell-and-pages`. Executed as 3 planned passes (Opus planning, Sonnet subagents executing).
+
+#### Files created
+| File | Purpose |
+|---|---|
+| `supabase/functions/_shared/auth.ts` | `requireUser(req)` — validates JWT via `supabase.auth.getUser()`; works for anonymous + future authenticated users. Service-role tokens (internal function-to-function calls) bypass to synthetic `{ id: 'system', is_service_role: true }` user. |
+| `supabase/functions/_shared/cors.ts` | `corsHeaders(req)` + `handleOptions(req)` — reads `ALLOWED_ORIGINS` env var (comma-separated), echoes Origin only if allowlisted, adds `Vary: Origin`. Default: `http://localhost:3000`. |
+
+#### Files modified
+| File | Bug(s) | Change |
+|---|---|---|
+| `supabase/functions/translate/index.ts` | 1, 9, 2 (dup), 10 | Body parsed once outside try/catch and reused in catch fallback; `targetLanguage` echoed correctly on failure; auth check; CORS helper |
+| `supabase/functions/escalate/index.ts` | 3, 2, 10 | `user_id` derived from JWT (not body); auth check; CORS helper |
+| `supabase/functions/ask-query/index.ts` | 4, 7, 11, 2, 10 | Model must emit `CONFIDENCE: HIGH\|MEDIUM\|ABSTAIN` line; `deriveConfidence` parses it (fallback `medium`); CONFIDENCE + CITATIONS both stripped from user answer; `history` param validated (role+content, capped last 6) and spread between system + user messages; sonar-pro fallback broadened to 400/402/403/429 with module-level `sonarProAvailable` flag flipped on 400/403 (permanent structural failure) but NOT on 402/429 (transient); auth check; CORS helper |
+| `supabase/functions/classify-formulation/index.ts` | 5, 2, 10 | Model returns structured `CITATIONS:` block (`display_name \| url \| statute_ref`); local `parseCitations()` with domain-metadata fallback; auth check; CORS helper |
+| `supabase/functions/tkdl-search/index.ts` | 6, 2, 10 | Model returns JSON array (up to 5 records); handler strips markdown fences, `JSON.parse`s, validates status enum, coerces empty `tkdlRef` to null; falls back to single-record parse with `console.warn` on JSON failure; auth check; CORS helper |
+| `supabase/functions/mini-guide/index.ts` | 8, 2, 10 | System prompt now takes `(currentScreen, language)`; validates against `en/hi/ta/bn`; instructs Groq/Llama 3.3-70b to respond in the target language directly (no separate translate call); auth check; CORS helper |
+| `frontend/app/app/ask/page.tsx` | 7 | Builds `history` array from `messages` state (captured before new user turn appended) and sends `.slice(-6)` in `supabase.functions.invoke` body |
+
+### Decisions made
+- **Auth model:** shared `requireUser()` helper validates any Supabase JWT — anonymous (today's onboarding flow) or authenticated (future login screen). No backend change needed when the login system lands; `supabase.functions.invoke()` auto-attaches whatever token the session carries.
+- **Service-role bypass:** `ask-query` calls `translate` internally with the service-role key; `requireUser` detects and passes it through as a synthetic system user rather than 401-ing. Escalate is not affected (frontend-only caller).
+- **Conversation history:** session-only mode. Frontend keeps `messages` state, sends last 6 turns per call. No DB persistence (deferred until real login screen; current `messages` table write remains dead code gated on `conversationId` which the frontend still sends as null).
+- **Confidence fallback:** unparseable `CONFIDENCE:` line defaults to `medium` — signals uncertainty rather than false confidence.
+- **sonar-pro flag:** flipped on 400/403 only (real "model not available"); 402/429 are transient billing/rate-limit signals so those trigger the fallback but keep the flag.
+- **CORS origins:** env var-driven so Joyjit can add the Vercel domain later without a code change. Default is dev origin only.
+- **mini-guide language:** Llama 3.3-70b is multilingual — cheaper + lower latency to prompt-in-target-language than to call translate.
+
+### Verified
+- All 6 Edge Functions grep-clean of `Access-Control-Allow-Origin: '*'` (only the templated one in `cors.ts` remains).
+- Sonar-pro logic reviewed by reading `ask-query/index.ts:176–197`.
+- Frontend `history` build captures state BEFORE new turn appended — correct snapshot.
+- Translate fallback echoes `body.targetLanguage || 'en'` (already fixed in first pass, reconfirmed).
+
+### Pending (carry to Session 6)
+| Task | Owner |
+|---|---|
+| Set `PERPLEXITY_API_KEY` + `GROQ_API_KEY` in Supabase Secrets | Joyjit |
+| Set `ALLOWED_ORIGINS` in Supabase Secrets (once Vercel domain is live) | Joyjit |
+| Redeploy all 6 Edge Functions: `supabase functions deploy ask-query classify-formulation tkdl-search mini-guide translate escalate --project-ref nrsfljvrtsnewkbufdid` | Joyjit / Agent (after PR merge) |
+| Rate limiting on all 6 functions | Agent |
+| Vercel deployment + branch protection on `main` | Joyjit |
+| E2E smoke test (needs keys set) | Agent |
+| Login screen + real user accounts (replaces `signInAnonymously`) | Team |
+| Onboarding screens polish | Joyjit (Claude Design) |
+| DB-backed conversation persistence (revisit when login lands) | Agent |
+
+### Known gaps / risks
+- Frontend still sends `conversationId: null` — the `messages` table write in `ask-query` is dead code. Not a regression, just unchanged. Revisit alongside login.
+- `context.md` still lists Bengali (`bn`) in the DB schema check constraint but frontend supports Tamil (`ta`) too — schema drift to address in Session 6.
+- `mini-guide` was NOT updated with a language column in DB anywhere (no persistence expected).
+
+---
+
 ## Session 4 — 2026-09-03
 
 ### What was done

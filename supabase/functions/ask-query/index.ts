@@ -1,14 +1,18 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { requireUser } from '../_shared/auth.ts'
+import { corsHeaders, handleOptions } from '../_shared/cors.ts'
 import approvedSources from '../_shared/approved_sources.json' assert { type: 'json' }
 
 const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY')!
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
-// Use sonar-pro for legal accuracy; fall back to sonar if quota hit
+// Use sonar-pro for legal accuracy; fall back to sonar if quota hit or model unavailable
 const PERPLEXITY_MODEL = 'sonar-pro'
 const PERPLEXITY_FALLBACK_MODEL = 'sonar'
+
+// Module-level flag: flip to false when sonar-pro returns a structural "model not available" error
+let sonarProAvailable = true
 
 function getDomainFilter(jurisdiction: string): string[] {
   if (jurisdiction === 'india') return approvedSources.filter_sets.ask_query_india
@@ -45,12 +49,18 @@ CITATION RULES:
 - Citation format: [Source Name — Section/Article reference] e.g. [Patents Act 1970 — Section 3(p)]
 - Do not cite secondary sources, legal blogs, or unofficial summaries
 
-CONFIDENCE LEVEL:
-- HIGH: answer is directly stated in a retrieved official source
-- MEDIUM: answer requires interpretation of a retrieved source
-- ABSTAIN: answer not found in approved sources — never guess
+CONFIDENCE LINE (required, on its own line, before CITATIONS):
+CONFIDENCE: HIGH   — answer directly stated in a retrieved official source
+CONFIDENCE: MEDIUM — answer required interpretation of a retrieved source
+CONFIDENCE: ABSTAIN — answer not found in approved sources
 
 RESPONSE FORMAT:
+Your response must follow this exact order:
+1. Answer text
+2. CONFIDENCE: <HIGH|MEDIUM|ABSTAIN>
+3. CITATIONS block
+4. Disclaimer
+
 After your answer, include a structured citations block:
 CITATIONS:
 [list each citation on its own line as: display_name | url | statute_ref]
@@ -62,7 +72,7 @@ SCOPE: patents, GI, trademarks, designs, copyright, trade secrets, plant variety
 For out-of-scope questions: "This is outside the scope of Nyaaya AI. Please consult a qualified professional."`
 }
 
-async function callPerplexity(model: string, systemPrompt: string, query: string, domainFilter: string[]) {
+async function callPerplexity(model: string, systemPrompt: string, query: string, domainFilter: string[], history: Array<{ role: string; content: string }> = []) {
   return fetch('https://api.perplexity.ai/chat/completions', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${PERPLEXITY_API_KEY}`, 'Content-Type': 'application/json' },
@@ -70,6 +80,7 @@ async function callPerplexity(model: string, systemPrompt: string, query: string
       model,
       messages: [
         { role: 'system', content: systemPrompt },
+        ...history,
         { role: 'user', content: query }
       ],
       search_domain_filter: domainFilter,
@@ -128,47 +139,81 @@ function extractStatuteRef(text: string, domain: string): string {
 }
 
 function deriveConfidence(answerText: string): 'high' | 'medium' | 'abstain' {
-  const lower = answerText.toLowerCase()
-  if (lower.includes('i cannot find authoritative') || lower.includes('abstain')) return 'abstain'
-  if (lower.includes('may ') || lower.includes('could ') || lower.includes('might ') || lower.includes('interpret')) return 'medium'
-  return 'high'
+  const match = answerText.match(/^CONFIDENCE:\s*(HIGH|MEDIUM|ABSTAIN)\b/im)
+  if (match) return match[1].toLowerCase() as 'high' | 'medium' | 'abstain'
+  return 'medium'
 }
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type' } })
-  }
+  if (req.method === 'OPTIONS') return handleOptions(req)
+
+  const authResult = await requireUser(req)
+  if ('error' in authResult) return authResult.error
+  const { user, supabase } = authResult
 
   try {
-    const { query, jurisdiction, language, userType, conversationId } = await req.json()
+    const { query, jurisdiction, language, userType, conversationId, history: rawHistory } = await req.json()
 
     if (!query || !jurisdiction || !language || !userType) {
-      return errorResponse('VALIDATION_ERROR', 'Missing required fields: query, jurisdiction, language, userType', false, 400)
+      return errorResponse(req, 'VALIDATION_ERROR', 'Missing required fields: query, jurisdiction, language, userType', false, 400)
     }
+
+    // Validate and sanitize history
+    const validatedHistory: Array<{ role: 'user' | 'assistant'; content: string }> = []
+    if (Array.isArray(rawHistory)) {
+      for (const item of rawHistory) {
+        if (item && typeof item.role === 'string' && typeof item.content === 'string'
+            && (item.role === 'user' || item.role === 'assistant')) {
+          validatedHistory.push({ role: item.role, content: item.content })
+        }
+      }
+    }
+    const history = validatedHistory.slice(-6)
 
     const domainFilter = getDomainFilter(jurisdiction)
     const systemPrompt = SYSTEM_PROMPT(jurisdiction, userType)
 
-    // Try sonar-pro first, fall back to sonar on 402/429
-    let perplexityRes = await callPerplexity(PERPLEXITY_MODEL, systemPrompt, query, domainFilter)
-    if (perplexityRes.status === 402 || perplexityRes.status === 429) {
-      perplexityRes = await callPerplexity(PERPLEXITY_FALLBACK_MODEL, systemPrompt, query, domainFilter)
+    // Try sonar-pro first; skip if known unavailable this worker lifetime
+    let perplexityRes: Response
+    let usedFallback = false
+
+    if (!sonarProAvailable) {
+      perplexityRes = await callPerplexity(PERPLEXITY_FALLBACK_MODEL, systemPrompt, query, domainFilter, history)
+      usedFallback = true
+    } else {
+      perplexityRes = await callPerplexity(PERPLEXITY_MODEL, systemPrompt, query, domainFilter, history)
+
+      // Structural "model not available" errors — flip the flag permanently for this worker
+      if (!perplexityRes.ok && (perplexityRes.status === 400 || perplexityRes.status === 403)) {
+        sonarProAvailable = false
+        console.warn('sonar-pro unavailable for this key; downgrading to sonar for remainder of worker lifetime')
+        perplexityRes = await callPerplexity(PERPLEXITY_FALLBACK_MODEL, systemPrompt, query, domainFilter, history)
+        usedFallback = true
+      } else if (!perplexityRes.ok && (perplexityRes.status === 402 || perplexityRes.status === 429)) {
+        // Transient billing/rate-limit — fall back but do NOT flip the flag
+        perplexityRes = await callPerplexity(PERPLEXITY_FALLBACK_MODEL, systemPrompt, query, domainFilter, history)
+        usedFallback = true
+      }
     }
 
     if (!perplexityRes.ok) {
-      if (perplexityRes.status === 429) return errorResponse('RATE_LIMITED', 'Too many requests. Please try again in a moment.', true)
-      return errorResponse('PERPLEXITY_UNAVAILABLE', 'Our knowledge service is temporarily unavailable. Please try again.', true)
+      if (perplexityRes.status === 429) return errorResponse(req, 'RATE_LIMITED', 'Too many requests. Please try again in a moment.', true)
+      return errorResponse(req, 'PERPLEXITY_UNAVAILABLE', 'Our knowledge service is temporarily unavailable. Please try again.', true)
     }
 
     const perplexityData = await perplexityRes.json()
     const answerText: string = perplexityData.choices[0].message.content
     const rawCitations: string[] = perplexityData.citations ?? []
 
-    // Strip the internal CITATIONS block from the user-facing answer
-    const cleanAnswer = answerText.replace(/CITATIONS:\s*[\s\S]*?(?=Information, not legal advice|$)/i, '').trim()
+    const confidence = deriveConfidence(answerText)
+
+    // Strip the CONFIDENCE line and the internal CITATIONS block from the user-facing answer
+    const cleanAnswer = answerText
+      .replace(/^CONFIDENCE:\s*(HIGH|MEDIUM|ABSTAIN)\b.*$/im, '')
+      .replace(/CITATIONS:\s*[\s\S]*?(?=Information, not legal advice|$)/i, '')
+      .trim()
 
     const citations = parseCitations(answerText, rawCitations)
-    const confidence = deriveConfidence(answerText)
 
     // Translate if needed
     let finalAnswer = cleanAnswer
@@ -186,18 +231,13 @@ serve(async (req) => {
       } catch (_) { /* fallback to English */ }
     }
 
-    // Persist to DB
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-    const authHeader = req.headers.get('Authorization')
-    if (authHeader && conversationId) {
+    // Persist to DB (non-fatal)
+    if (conversationId) {
       try {
-        const { data: { user } } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''))
-        if (user) {
-          await supabase.from('messages').insert([
-            { conversation_id: conversationId, role: 'user', content: query, citations: [], confidence: null },
-            { conversation_id: conversationId, role: 'assistant', content: finalAnswer, citations, confidence }
-          ])
-        }
+        await supabase.from('messages').insert([
+          { conversation_id: conversationId, role: 'user', content: query, citations: [], confidence: null },
+          { conversation_id: conversationId, role: 'assistant', content: finalAnswer, citations, confidence }
+        ])
       } catch (_) { /* non-fatal — DB write failure should not block response */ }
     }
 
@@ -206,19 +246,19 @@ serve(async (req) => {
       citations,
       confidence,
       jurisdiction,
-      model_used: perplexityData.model ?? PERPLEXITY_MODEL,
+      model_used: usedFallback ? PERPLEXITY_FALLBACK_MODEL : (perplexityData.model ?? PERPLEXITY_MODEL),
       disclaimer: 'Information, not legal advice. Verify against the official record before filing.'
-    }), { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } })
+    }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(req) } })
 
   } catch (err) {
     console.error(err)
-    return errorResponse('INTERNAL_ERROR', 'An unexpected error occurred. Please try again.', true)
+    return errorResponse(req, 'INTERNAL_ERROR', 'An unexpected error occurred. Please try again.', true)
   }
 })
 
-function errorResponse(code: string, message: string, retryable: boolean, status = 500) {
+function errorResponse(req: Request, code: string, message: string, retryable: boolean, status = 500) {
   return new Response(JSON.stringify({ error: true, code, message, retryable }), {
     status,
-    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(req) }
   })
 }

@@ -1,5 +1,39 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+import { requireUser } from '../_shared/auth.ts'
+import { corsHeaders, handleOptions } from '../_shared/cors.ts'
 import approvedSources from '../_shared/approved_sources.json' assert { type: 'json' }
+
+function parseCitations(answerText: string, rawCitations: string[]) {
+  const domainMeta = approvedSources.domains as Record<string, { display: string }>
+
+  const citationsBlockMatch = answerText.match(/CITATIONS:\s*([\s\S]*?)$/i)
+  if (citationsBlockMatch) {
+    const lines = citationsBlockMatch[1].trim().split('\n').filter(l => l.trim())
+    const parsed = lines.map(line => {
+      const parts = line.split('|').map(p => p.trim())
+      const url = parts[1] ?? ''
+      let hostname = ''
+      try { hostname = new URL(url).hostname.replace('www.', '') } catch (_) { hostname = url }
+      return {
+        source: parts[0] || domainMeta[hostname]?.display || hostname,
+        url,
+        statute_ref: parts[2] || ''
+      }
+    }).filter(c => c.url)
+    if (parsed.length > 0) return parsed
+  }
+
+  // Fallback: use raw citation URLs, enrich with domain metadata
+  return rawCitations.map((url: string) => {
+    let hostname = ''
+    try { hostname = new URL(url).hostname.replace('www.', '') } catch (_) { hostname = url }
+    return {
+      source: domainMeta[hostname]?.display || hostname,
+      url,
+      statute_ref: ''
+    }
+  })
+}
 
 const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY')!
 
@@ -56,16 +90,17 @@ function classifyFromAnswers(answers: Record<string, string>): keyof typeof CLAS
 }
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type' } })
-  }
+  if (req.method === 'OPTIONS') return handleOptions(req)
+
+  const authResult = await requireUser(req)
+  if ('error' in authResult) return authResult.error
 
   try {
     const { step, answers, language } = await req.json()
 
     if (step < 3) {
       return new Response(JSON.stringify({ complete: false, nextStep: step + 1 }), {
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        headers: { 'Content-Type': 'application/json', ...corsHeaders(req) }
       })
     }
 
@@ -81,8 +116,8 @@ serve(async (req) => {
         body: JSON.stringify({
           model: 'sonar',
           messages: [
-            { role: 'system', content: 'You are a legal citation assistant. Return only the most relevant statute sections and official source URLs for the classification given. Be concise.' },
-            { role: 'user', content: `Find key statute citations for: ${result.label} under Indian IP and drug regulatory law.` }
+            { role: 'system', content: 'You are a legal citation assistant. Output ONLY a CITATIONS block — no prose, no preamble. Each line must be exactly: display_name | url | statute_ref (e.g. "Patents Act 1970 | https://ipindia.gov.in/... | Section 3(p) of the Patents Act 1970"). Include only official Indian statute and regulatory sources.' },
+            { role: 'user', content: `Find key statute citations for: ${result.label} under Indian IP and drug regulatory law.\n\nCITATIONS:` }
           ],
           search_domain_filter: approvedSources.filter_sets.classify_formulation,
           return_citations: true
@@ -90,22 +125,19 @@ serve(async (req) => {
       })
       if (pRes.ok) {
         const pData = await pRes.json()
-        citations = (pData.citations ?? []).map((url: string) => ({
-          source: new URL(url).hostname.replace('www.', ''),
-          url,
-          statute_ref: ''
-        }))
+        const answerText: string = pData.choices[0].message.content
+        citations = parseCitations(answerText, pData.citations ?? [])
       }
     } catch (_) { /* citations optional */ }
 
     return new Response(JSON.stringify({ ...result, classification: classificationKey, citations, complete: true }), {
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(req) }
     })
 
   } catch (err) {
     console.error(err)
     return new Response(JSON.stringify({ error: true, code: 'DB_ERROR', message: 'An unexpected error occurred.', retryable: true }), {
-      status: 500, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(req) }
     })
   }
 })

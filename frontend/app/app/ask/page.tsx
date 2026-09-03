@@ -48,6 +48,7 @@ export default function AskPage() {
     setQuery('')
     setLoading(true)
     try {
+      const history = messages.map(m => ({ role: m.role, content: m.content })).slice(-6)
       const { data, error: fnError } = await supabase.functions.invoke('ask-query', {
         body: {
           query: q,
@@ -55,6 +56,7 @@ export default function AskPage() {
           language: ctx.language,
           userType: ctx.userType,
           conversationId: null,
+          history,
         },
       })
       if (fnError) throw fnError
