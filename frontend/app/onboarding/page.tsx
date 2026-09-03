@@ -112,13 +112,22 @@ function pillBtn(enabled: boolean): React.CSSProperties {
 export default function OnboardingPage() {
   const router = useRouter()
 
-  // Skip if already onboarded
+  // Gate: require session; if profile already exists, skip to app.
   useEffect(() => {
-    try {
-      if (localStorage.getItem('nyaaya_onboarded') === '1') {
+    let cancelled = false
+    ;(async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (cancelled) return
+      if (!session) { router.replace('/login'); return }
+      const { data: profile } = await supabase
+        .from('users').select('id').eq('auth_id', session.user.id).maybeSingle()
+      if (cancelled) return
+      if (profile) {
+        try { localStorage.setItem('nyaaya_onboarded', '1') } catch {}
         router.replace('/app/ask')
       }
-    } catch {}
+    })()
+    return () => { cancelled = true }
   }, [router])
 
   const [screen, setScreen] = useState<1 | 2 | 3 | 4>(1)
@@ -134,9 +143,9 @@ export default function OnboardingPage() {
     setLoading(true)
     const userType = role ?? 'practitioner'
     try {
-      const { data: authData, error: authError } = await supabase.auth.signInAnonymously()
-      if (authError) throw authError
-      const userId = authData?.user?.id
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) { router.replace('/login'); return }
+      const userId = session.user.id
       if (userId) {
         const { error: upsertError } = await supabase.from('users').upsert({
           id: userId,
