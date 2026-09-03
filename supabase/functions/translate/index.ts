@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { requireUser } from '../_shared/auth.ts'
+import { requireRateLimit } from '../_shared/rate_limit.ts'
 import { corsHeaders, handleOptions } from '../_shared/cors.ts'
 
 const GOOGLE_TRANSLATE_API_KEY = Deno.env.get('GOOGLE_TRANSLATE_API_KEY')!
@@ -9,6 +10,10 @@ serve(async (req) => {
 
   const authResult = await requireUser(req)
   if ('error' in authResult) return authResult.error
+  const { user, supabase } = authResult
+
+  const rateLimited = await requireRateLimit(req, supabase, user, 'translate')
+  if (rateLimited) return rateLimited
 
   // Parse body once before try/catch so it is accessible in the catch fallback
   const body = await req.json().catch(() => ({} as Record<string, string>))
