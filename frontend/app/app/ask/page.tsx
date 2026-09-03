@@ -1,5 +1,6 @@
 'use client'
-import { useState, useRef, useEffect } from 'react'
+import { Suspense, useState, useRef, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 
 const SUGGESTIONS = [
@@ -18,15 +19,39 @@ interface Message {
   disclaimer?: string
 }
 
-export default function AskPage() {
+export default function AskPageWrapper() {
+  return (
+    <Suspense fallback={null}>
+      <AskPage />
+    </Suspense>
+  )
+}
+
+function AskPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const [messages, setMessages] = useState<Message[]>([])
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const autoSentRef = useRef(false)
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+
+  useEffect(() => {
+    if (autoSentRef.current) return
+    const q = searchParams?.get('q')
+    if (!q) return
+    const decoded = decodeURIComponent(q)
+    if (!decoded.trim()) return
+    autoSentRef.current = true
+    setQuery(decoded)
+    router.replace('/app/ask', { scroll: false })
+    sendQuery(decoded)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function getContext() {
     try {
