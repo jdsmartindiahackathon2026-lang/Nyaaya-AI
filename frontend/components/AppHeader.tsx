@@ -14,12 +14,8 @@ interface Props {
   onJurisdictionChange: (j: string) => void
 }
 
-export default function AppHeader({ mode, jurisdiction, onJurisdictionChange }: Props) {
+export default function AppHeader({ mode }: Props) {
   const meta = MODE_TITLES[mode] ?? MODE_TITLES.ask
-  const jurisdictions = [
-    { label: 'India', value: 'india' },
-    { label: 'International', value: 'international' },
-  ]
 
   return (
     <header style={{
@@ -37,22 +33,19 @@ export default function AppHeader({ mode, jurisdiction, onJurisdictionChange }: 
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span className="label-xs">Canopy</span>
           <div style={{
-            position: 'relative', display: 'flex', padding: 4, gap: 4,
+            display: 'flex', alignItems: 'center',
+            padding: '8px 16px',
             background: 'var(--bg-input)',
             border: '1px solid var(--border-hi)',
             borderRadius: 10,
+            fontFamily: 'IBM Plex Sans, system-ui, sans-serif',
+            fontSize: 13,
+            fontWeight: 500,
+            color: 'var(--text-lo)',
+            userSelect: 'none',
           }}>
-            {jurisdictions.map(j => (
-              <button
-                key={j.value}
-                onClick={() => onJurisdictionChange(j.value)}
-                className={`jur-btn${jurisdiction === j.value ? ' active' : ''}`}
-              >
-                {j.label}
-              </button>
-            ))}
+            Jurisdiction · India
           </div>
         </div>
       </div>
