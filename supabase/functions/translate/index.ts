@@ -1,24 +1,30 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+import { requireUser } from '../_shared/auth.ts'
+import { corsHeaders, handleOptions } from '../_shared/cors.ts'
 
 const GOOGLE_TRANSLATE_API_KEY = Deno.env.get('GOOGLE_TRANSLATE_API_KEY')!
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type' } })
-  }
+  if (req.method === 'OPTIONS') return handleOptions(req)
+
+  const authResult = await requireUser(req)
+  if ('error' in authResult) return authResult.error
+
+  // Parse body once before try/catch so it is accessible in the catch fallback
+  const body = await req.json().catch(() => ({} as Record<string, string>))
 
   try {
-    const { text, targetLanguage } = await req.json()
+    const { text, targetLanguage } = body
 
     if (!text || !targetLanguage) {
       return new Response(JSON.stringify({ error: true, code: 'VALIDATION_ERROR', message: 'Missing text or targetLanguage.', retryable: false }), {
-        status: 400, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(req) }
       })
     }
 
     if (targetLanguage === 'en') {
       return new Response(JSON.stringify({ translatedText: text, sourceLanguage: 'en', targetLanguage: 'en' }), {
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        headers: { 'Content-Type': 'application/json', ...corsHeaders(req) }
       })
     }
 
@@ -37,14 +43,13 @@ serve(async (req) => {
     const translatedText: string = data.data.translations[0].translatedText
 
     return new Response(JSON.stringify({ translatedText, sourceLanguage: 'en', targetLanguage }), {
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(req) }
     })
 
   } catch (err) {
     console.error('Translation failed, returning original:', err)
-    const body = await req.clone().json().catch(() => ({ text: '' }))
-    return new Response(JSON.stringify({ translatedText: body.text, sourceLanguage: 'en', targetLanguage: 'en' }), {
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+    return new Response(JSON.stringify({ translatedText: body.text || '', sourceLanguage: 'en', targetLanguage: body.targetLanguage || 'en' }), {
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(req) }
     })
   }
 })

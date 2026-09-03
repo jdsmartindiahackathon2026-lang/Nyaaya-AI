@@ -1,11 +1,16 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+import { requireUser } from '../_shared/auth.ts'
+import { corsHeaders, handleOptions } from '../_shared/cors.ts'
 
 const GROQ_API_KEY = Deno.env.get('GROQ_API_KEY')!
 
-const SYSTEM_PROMPT = (currentScreen: string) => `
+const LANGUAGE_NAMES: Record<string, string> = { en: 'English', hi: 'Hindi', ta: 'Tamil', bn: 'Bengali' }
+
+const SYSTEM_PROMPT = (currentScreen: string, lang: string) => `
 You are the Nyaaya AI guide bot. Your only job is to explain what Nyaaya AI's features do and help users navigate the platform.
 
 CURRENT SCREEN: ${currentScreen}
+LANGUAGE: Respond in ${LANGUAGE_NAMES[lang]}. Keep the response tight and natural in that language — do not mix languages.
 
 You can explain:
 - What the Ask interface does and how to use it
@@ -28,18 +33,21 @@ Keep responses short — 2-4 sentences maximum. You are a helper, not a lawyer.
 `
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type' } })
-  }
+  if (req.method === 'OPTIONS') return handleOptions(req)
+
+  const authResult = await requireUser(req)
+  if ('error' in authResult) return authResult.error
 
   try {
     const { query, currentScreen, language } = await req.json()
 
     if (!query || !currentScreen) {
       return new Response(JSON.stringify({ error: true, code: 'VALIDATION_ERROR', message: 'Missing required fields.', retryable: false }), {
-        status: 400, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(req) }
       })
     }
+
+    const lang = LANGUAGE_NAMES[language] ? language : 'en'
 
     const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -47,7 +55,7 @@ serve(async (req) => {
       body: JSON.stringify({
         model: 'llama-3.3-70b-versatile',
         messages: [
-          { role: 'system', content: SYSTEM_PROMPT(currentScreen) },
+          { role: 'system', content: SYSTEM_PROMPT(currentScreen, lang) },
           { role: 'user', content: query }
         ],
         max_tokens: 200,
@@ -57,7 +65,7 @@ serve(async (req) => {
 
     if (!groqRes.ok) {
       return new Response(JSON.stringify({ error: true, code: 'GROQ_UNAVAILABLE', message: 'Guide service temporarily unavailable.', retryable: true }), {
-        status: 503, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(req) }
       })
     }
 
@@ -67,13 +75,13 @@ serve(async (req) => {
     const suggestedAction = answer.toLowerCase().includes('ask interface') ? 'Try the Ask interface for legal questions' : null
 
     return new Response(JSON.stringify({ answer, suggestedAction }), {
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(req) }
     })
 
   } catch (err) {
     console.error(err)
     return new Response(JSON.stringify({ error: true, code: 'DB_ERROR', message: 'An unexpected error occurred.', retryable: true }), {
-      status: 500, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(req) }
     })
   }
 })
