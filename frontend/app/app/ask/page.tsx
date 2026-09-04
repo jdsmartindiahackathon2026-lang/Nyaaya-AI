@@ -123,8 +123,9 @@ function AskPage() {
   }
 
   // Create a conversation row lazily on first send if none is active.
-  async function ensureConversation(firstQuery: string, jurisdiction: string): Promise<string | null> {
-    if (activeConvId) return activeConvId
+  // Returns { id, isNew } so the caller can trigger the auto-title only for fresh threads.
+  async function ensureConversation(firstQuery: string, jurisdiction: string): Promise<{ id: string; isNew: boolean } | null> {
+    if (activeConvId) return { id: activeConvId, isNew: false }
     if (!userRowId) return null
     const title = firstQuery.length > 60 ? firstQuery.slice(0, 60).trimEnd() + '…' : firstQuery
     const { data, error: insErr } = await supabase
@@ -135,7 +136,46 @@ function AskPage() {
     if (insErr || !data) return null
     setActiveConvId(data.id)
     setConversations(prev => [data as ConversationRow, ...prev])
-    return data.id
+    return { id: data.id, isNew: true }
+  }
+
+  // Fire-and-forget: ask Groq for a tighter title, then persist + update the sidebar.
+  async function autoTitle(convId: string, firstQuery: string) {
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke('title-conversation', {
+        body: { query: firstQuery },
+      })
+      if (fnError || !data?.title) return
+      const newTitle = String(data.title).trim()
+      if (!newTitle) return
+      await supabase.from('conversations').update({ title: newTitle }).eq('id', convId)
+      setConversations(prev => prev.map(c => c.id === convId ? { ...c, title: newTitle } : c))
+    } catch (_) { /* non-fatal — placeholder title stays */ }
+  }
+
+  async function renameConversation(convId: string) {
+    const current = conversations.find(c => c.id === convId)
+    const next = window.prompt('Rename conversation', current?.title ?? '')
+    if (next === null) return
+    const trimmed = next.trim()
+    if (!trimmed || trimmed === current?.title) return
+    const clipped = trimmed.length > 80 ? trimmed.slice(0, 80).trimEnd() + '…' : trimmed
+    const { error: updErr } = await supabase.from('conversations').update({ title: clipped }).eq('id', convId)
+    if (updErr) { setError('Could not rename that conversation.'); return }
+    setConversations(prev => prev.map(c => c.id === convId ? { ...c, title: clipped } : c))
+  }
+
+  async function deleteConversation(convId: string) {
+    const current = conversations.find(c => c.id === convId)
+    const label = current?.title?.trim() || NEW_CHAT_LABEL
+    if (!window.confirm(`Delete "${label}"? This cannot be undone.`)) return
+    const { error: delErr } = await supabase.from('conversations').delete().eq('id', convId)
+    if (delErr) { setError('Could not delete that conversation.'); return }
+    setConversations(prev => prev.filter(c => c.id !== convId))
+    if (activeConvId === convId) {
+      setActiveConvId(null)
+      setMessages([])
+    }
   }
 
   const startNewChat = useCallback(() => {
@@ -181,7 +221,7 @@ function AskPage() {
     setQuery('')
     setLoading(true)
     try {
-      const convId = await ensureConversation(q, ctx.jurisdiction)
+      const conv = await ensureConversation(q, ctx.jurisdiction)
       const history = messages.map(m => ({ role: m.role, content: m.content })).slice(-6)
       const { data, error: fnError } = await supabase.functions.invoke('ask-query', {
         body: {
@@ -189,7 +229,7 @@ function AskPage() {
           jurisdiction: ctx.jurisdiction,
           language: ctx.language,
           userType: ctx.userType,
-          conversationId: convId,
+          conversationId: conv?.id ?? null,
           history,
         },
       })
@@ -202,6 +242,8 @@ function AskPage() {
         confidence: data.confidence,
         disclaimer: data.disclaimer,
       }])
+      // Only auto-title fresh threads — leave user-renamed titles alone.
+      if (conv?.isNew) void autoTitle(conv.id, q)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Something went wrong. Please try again.'
       setError(msg)
@@ -219,6 +261,11 @@ function AskPage() {
 
   return (
     <div style={{ display: 'flex', height: '100%', minHeight: 0 }}>
+      <style>{`
+        .conv-row .conv-actions { opacity: 0; transition: opacity 120ms; }
+        .conv-row:hover .conv-actions,
+        .conv-row:focus-within .conv-actions { opacity: 1; }
+      `}</style>
       {/* ── Chat history rail ─────────────────────────────────────────────── */}
       <aside style={{
         width: railOpen ? 220 : 44, flexShrink: 0,
@@ -299,9 +346,11 @@ function AskPage() {
               {conversations.map(c => {
                 const active = c.id === activeConvId
                 return (
-                  <button key={c.id} onClick={() => loadConversation(c.id)}
+                  <div key={c.id}
+                    className="conv-row"
                     style={{
-                      textAlign: 'left', padding: '8px 10px', borderRadius: 6,
+                      position: 'relative',
+                      padding: '8px 10px', borderRadius: 6,
                       border: '1px solid transparent',
                       background: active ? 'rgba(28,74,55,0.5)' : 'transparent',
                       color: active ? 'var(--text-hi)' : 'var(--text-lo)',
@@ -311,18 +360,49 @@ function AskPage() {
                       display: 'flex', flexDirection: 'column', gap: 3,
                       transition: 'background 120ms',
                     }}
+                    onClick={() => loadConversation(c.id)}
                     onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgba(28,74,55,0.2)' }}
                     onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
                   >
                     <span style={{
                       whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                      paddingRight: 40,
                     }}>
                       {c.title?.trim() || NEW_CHAT_LABEL}
                     </span>
                     <span style={{ fontSize: 10.5, color: 'var(--text-xs)' }}>
                       {relativeTime(c.created_at)}
                     </span>
-                  </button>
+                    <div className="conv-actions" style={{
+                      position: 'absolute', top: 4, right: 4,
+                      display: 'flex', gap: 2,
+                    }}>
+                      <button onClick={e => { e.stopPropagation(); renameConversation(c.id) }}
+                        title="Rename" aria-label="Rename conversation"
+                        style={{
+                          width: 22, height: 22, padding: 0,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          borderRadius: 4, border: 'none',
+                          background: 'transparent', color: 'var(--text-lo)',
+                          cursor: 'pointer', fontSize: 12, lineHeight: 1,
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(28,74,55,0.6)'; e.currentTarget.style.color = 'var(--accent)' }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-lo)' }}
+                      >✎</button>
+                      <button onClick={e => { e.stopPropagation(); deleteConversation(c.id) }}
+                        title="Delete" aria-label="Delete conversation"
+                        style={{
+                          width: 22, height: 22, padding: 0,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          borderRadius: 4, border: 'none',
+                          background: 'transparent', color: 'var(--text-lo)',
+                          cursor: 'pointer', fontSize: 13, lineHeight: 1,
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(120,40,40,0.5)'; e.currentTarget.style.color = '#e8a0a0' }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-lo)' }}
+                      >×</button>
+                    </div>
+                  </div>
                 )
               })}
             </div>
