@@ -52,7 +52,7 @@ Wired the hybrid RAG runtime. Ships in PR [#12](https://github.com/jdsmartindiah
 - `ask-query` v3: hybrid path triggered for "compulsory licence for ayurvedic patent" — `model_used: "hybrid-rag+sonar-pro"`, citation deep-links include `#page=`.
 - `classify-formulation` v3: phytopharmaceutical queries hit `phytopharma-rules-2015` and `dc-act-1940` chunks at ≥ 0.65.
 - `tkdl-search` v3: response shape has both `results` (Perplexity TKDL records) and `legal_context` (RAG statute chunks). If Perplexity fails: `results: []`, `legal_context` still populated — no 503.
-- Migration applied to remote project `nrsfljvrtsnewkbufdid`. `select count(*) from public.statute_chunks` returns 7,438 after `ingest/load.py` run.
+- Migration applied to remote project `nrsfljvrtsnewkbufdid`. `select count(*) from public.statute_chunks` returns **7,438 rows across 19 sources** — Joyjit ran `ingest/load.py` from `E:\Nyaaya AI` with service-role key at session close. Table is fully seeded; hybrid path is live-and-hot.
 
 ### Delivery process notes
 
@@ -65,9 +65,10 @@ Wired the hybrid RAG runtime. Ships in PR [#12](https://github.com/jdsmartindiah
 
 | Task | Owner |
 |---|---|
+| Merge PR #12 | Joyjit — still open at session close |
 | Set `PERPLEXITY_API_KEY` in Supabase Secrets | Joyjit — still blocking Ask/TKDL/Classify citations |
 | Configure Vercel deployment | Joyjit |
-| Run `python ingest/load.py` locally with service-role key to seed `statute_chunks` (7,438 rows) | Joyjit |
+| Rotate `SUPABASE_SERVICE_ROLE_KEY` (pasted into local shell during load.py run) | Joyjit — low urgency, private session but keep hygiene |
 | Wire `legal_context` from tkdl-search into frontend citation pills | Agent (next session) |
 | FSSAI Ayurveda-Aahara 2022 — grab URL, add to `pdf_sources.yaml`, re-run pipeline | Joyjit (URL) + Agent (30 sec pipeline) |
 | BD Rules 2025 amendment ingestion (uuid `0ea74615-6957-4ef2-aea6-765fbc3f6750`) | Agent |
@@ -77,8 +78,15 @@ Wired the hybrid RAG runtime. Ships in PR [#12](https://github.com/jdsmartindiah
 ### Known gaps
 
 - `embed-query` cold start is 5-15s. On the first warm-up after a deploy, the first real user query may time out. A scheduled ping (Supabase cron or external) would mitigate.
-- `statute_chunks` table is empty on remote until Joyjit runs `load.py`. Until then, all hybrid paths fall back to Perplexity (graceful but not the shipped feature).
+- ~~`statute_chunks` table is empty on remote until Joyjit runs `load.py`.~~ Resolved at session close — table holds 7,438 rows.
 - PR #11 slot was taken by the Session 9 docs-close PR. This PR is #12.
+
+### Session 10 close (2026-09-04)
+
+- `ingest/load.py` executed successfully by Joyjit — `Uploaded 7438 rows across 19 files`. Verified via Supabase MCP `execute_sql`: `count = 7438`, `distinct statute_id = 19`. Hybrid RAG runtime is now HOT — the next Ask query against a corpus-covered topic will hit `hybrid-rag+sonar-pro` path with real deep-link citations.
+- Windows footgun caught mid-load: `& C:\rv\Scripts\Activate.ps1` blocked by ExecutionPolicy. Workaround = call the venv's python directly: `C:\rv\Scripts\python.exe ingest\load.py`. Documented for future runs.
+- Env-var quoting reminder: PowerShell requires quotes around JWT values in `$env:X = "..."` — an unquoted paste is parsed as a command.
+- PR #12 not yet merged at close. Perplexity key still not set. Both carry forward.
 
 ---
 
