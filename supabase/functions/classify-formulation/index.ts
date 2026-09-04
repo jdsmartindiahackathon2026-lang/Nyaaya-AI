@@ -1,9 +1,168 @@
+// NOTE: _shared/* imports are intentionally inlined below.
+// The Supabase MCP deploy bundler cannot resolve relative ../_shared/ paths,
+// so all shared helpers (cors, auth, rate_limit) are duplicated here verbatim.
+// Keep in sync with supabase/functions/_shared/ when those files change.
+
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-import { requireUser } from '../_shared/auth.ts'
-import { requireRateLimit } from '../_shared/rate_limit.ts'
-import { corsHeaders, handleOptions } from '../_shared/cors.ts'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import approvedSources from '../_shared/approved_sources.json' assert { type: 'json' }
 
+// ── INLINED: _shared/cors.ts ─────────────────────────────────────────────────
+const ALLOWED_ORIGINS = (Deno.env.get('ALLOWED_ORIGINS') ?? 'http://localhost:3000')
+  .split(',').map(s => s.trim()).filter(Boolean)
+
+function corsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get('Origin') ?? ''
+  const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0] ?? ''
+  return {
+    'Access-Control-Allow-Origin': allowed,
+    'Access-Control-Allow-Headers': 'authorization, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Vary': 'Origin'
+  }
+}
+
+function handleOptions(req: Request): Response {
+  return new Response('ok', { headers: corsHeaders(req) })
+}
+
+// ── INLINED: _shared/auth.ts ─────────────────────────────────────────────────
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+
+const unauthorized = (req: Request) => new Response(
+  JSON.stringify({ error: true, code: 'UNAUTHORIZED', message: 'Authentication required.', retryable: false }),
+  { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(req) } }
+)
+
+async function requireUser(req: Request): Promise<{ error: Response } | { user: { id: string; [key: string]: unknown }; supabase: ReturnType<typeof createClient> }> {
+  const authHeader = req.headers.get('Authorization')
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return { error: unauthorized(req) }
+  }
+
+  const token = authHeader.replace('Bearer ', '')
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+  if (token === SUPABASE_SERVICE_ROLE_KEY) {
+    return { user: { id: 'system', is_service_role: true }, supabase }
+  }
+
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token)
+    if (error || !user) {
+      return { error: unauthorized(req) }
+    }
+    return { user: user as { id: string; [key: string]: unknown }, supabase }
+  } catch (_) {
+    return { error: unauthorized(req) }
+  }
+}
+
+// ── INLINED: _shared/rate_limit.ts ───────────────────────────────────────────
+type FunctionName =
+  | 'ask-query'
+  | 'classify-formulation'
+  | 'tkdl-search'
+  | 'mini-guide'
+  | 'translate'
+  | 'escalate'
+  | 'embed-query'
+
+const RATE_LIMITS: Record<FunctionName, number> = {
+  'ask-query': 20,
+  'classify-formulation': 20,
+  'tkdl-search': 20,
+  'mini-guide': 30,
+  'translate': 60,
+  'escalate': 5,
+  'embed-query': 60,
+}
+
+interface RateLimitUser { id: string; is_service_role?: boolean }
+
+async function requireRateLimit(
+  req: Request,
+  supabase: { rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }> },
+  user: RateLimitUser,
+  functionName: FunctionName,
+): Promise<Response | null> {
+  if (user.is_service_role) return null
+
+  const limit = RATE_LIMITS[functionName]
+
+  const { data, error } = await supabase.rpc('check_rate_limit', {
+    p_user_id: user.id,
+    p_function: functionName,
+    p_limit: limit,
+  })
+
+  if (error) {
+    console.error(`[rate-limit] RPC failed for ${functionName}:`, error)
+    return null
+  }
+
+  const row = Array.isArray(data) ? (data[0] as { allowed?: boolean; reset_at?: string } | undefined) : (data as { allowed?: boolean; reset_at?: string } | null)
+  if (row && row.allowed === false) {
+    return new Response(
+      JSON.stringify({
+        error: true,
+        code: 'RATE_LIMITED',
+        message: `Too many requests. Limit: ${limit}/minute for ${functionName}. Try again in a moment.`,
+        retryable: true,
+        reset_at: row.reset_at,
+      }),
+      {
+        status: 429,
+        headers: {
+          'Content-Type': 'application/json',
+          'Retry-After': '60',
+          ...corsHeaders(req),
+        },
+      },
+    )
+  }
+
+  return null
+}
+
+// ── RAG HELPER ───────────────────────────────────────────────────────────────
+async function retrieveChunks(
+  supabase: ReturnType<typeof createClient>,
+  queryText: string,
+  opts?: { threshold?: number; count?: number; statuteFilter?: string[] }
+): Promise<any[]> {
+  try {
+    const embedRes = await fetch(`${SUPABASE_URL}/functions/v1/embed-query`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ text: queryText }),
+    })
+    if (!embedRes.ok) {
+      console.warn('[rag] embed-query failed:', embedRes.status)
+      return []
+    }
+    const { embedding } = await embedRes.json()
+    const { data } = await supabase.rpc('match_statute_chunks', {
+      query_embedding: embedding,
+      match_threshold: opts?.threshold ?? 0.65,
+      match_count: opts?.count ?? 8,
+    })
+    if (!data) return []
+    const filtered = opts?.statuteFilter?.length
+      ? data.filter((r: any) => opts.statuteFilter!.includes(r.statute_id))
+      : data
+    return filtered
+  } catch (err) {
+    console.warn('[rag] retrieveChunks error:', err)
+    return []
+  }
+}
+
+// ── DOMAIN LOGIC ─────────────────────────────────────────────────────────────
 function parseCitations(answerText: string, rawCitations: string[]) {
   const domainMeta = approvedSources.domains as Record<string, { display: string }>
 
@@ -24,7 +183,6 @@ function parseCitations(answerText: string, rawCitations: string[]) {
     if (parsed.length > 0) return parsed
   }
 
-  // Fallback: use raw citation URLs, enrich with domain metadata
   return rawCitations.map((url: string) => {
     let hostname = ''
     try { hostname = new URL(url).hostname.replace('www.', '') } catch (_) { hostname = url }
@@ -78,7 +236,7 @@ const CLASSIFICATIONS = {
 }
 
 function classifyFromAnswers(answers: Record<string, string>): keyof typeof CLASSIFICATIONS {
-  const { firstSchedule, innovationType, marketStatus } = answers
+  const { firstSchedule, innovationType } = answers
   if (firstSchedule === 'yes') return 'classical'
   if (firstSchedule === 'no') {
     if (innovationType === 'new_drug') return 'newdrug'
@@ -90,6 +248,7 @@ function classifyFromAnswers(answers: Record<string, string>): keyof typeof CLAS
   return 'proprietary'
 }
 
+// ── HANDLER ───────────────────────────────────────────────────────────────────
 serve(async (req) => {
   if (req.method === 'OPTIONS') return handleOptions(req)
 
@@ -112,30 +271,48 @@ serve(async (req) => {
     const classificationKey = classifyFromAnswers(answers)
     const result = CLASSIFICATIONS[classificationKey]
 
-    // Fetch supporting citations from Perplexity
-    let citations: object[] = []
-    try {
-      const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${PERPLEXITY_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'sonar',
-          messages: [
-            { role: 'system', content: 'You are a legal citation assistant. Output ONLY a CITATIONS block — no prose, no preamble. Each line must be exactly: display_name | url | statute_ref (e.g. "Patents Act 1970 | https://ipindia.gov.in/... | Section 3(p) of the Patents Act 1970"). Include only official Indian statute and regulatory sources.' },
-            { role: 'user', content: `Find key statute citations for: ${result.label} under Indian IP and drug regulatory law.\n\nCITATIONS:` }
-          ],
-          search_domain_filter: approvedSources.filter_sets.classify_formulation,
-          return_citations: true
-        })
-      })
-      if (pRes.ok) {
-        const pData = await pRes.json()
-        const answerText: string = pData.choices[0].message.content
-        citations = parseCitations(answerText, pData.citations ?? [])
-      }
-    } catch (_) { /* citations optional */ }
+    // ── Step 1: attempt local RAG for citations ───────────────────────────────
+    const retrievalQuery = `${result.label} ${answers.innovationType ?? ''} ${answers.usesTraditionalKnowledge ? 'traditional knowledge biopiracy' : ''}`.trim()
+    const chunks = await retrieveChunks(supabase, retrievalQuery, { threshold: 0.65, count: 5 })
 
-    return new Response(JSON.stringify({ ...result, classification: classificationKey, citations, complete: true }), {
+    let citations: object[] = []
+    let model_used: string
+
+    if (chunks.length > 0) {
+      // RAG hit — build citations from local corpus, skip Perplexity
+      citations = chunks.map((c: any) => ({
+        display_name: c.statute_display,
+        url: c.deep_link || c.citation_url,
+        statute_ref: `Section ${c.section_number}${c.clause_id ? ' ' + c.clause_id : ''}`,
+        category: 'statute',
+      }))
+      model_used = 'hybrid-rag'
+    } else {
+      // ── Step 2 (fallback): Perplexity citation generation ──────────────────
+      model_used = 'sonar'
+      try {
+        const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${PERPLEXITY_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'sonar',
+            messages: [
+              { role: 'system', content: 'You are a legal citation assistant. Output ONLY a CITATIONS block — no prose, no preamble. Each line must be exactly: display_name | url | statute_ref (e.g. "Patents Act 1970 | https://ipindia.gov.in/... | Section 3(p) of the Patents Act 1970"). Include only official Indian statute and regulatory sources.' },
+              { role: 'user', content: `Find key statute citations for: ${result.label} under Indian IP and drug regulatory law.\n\nCITATIONS:` }
+            ],
+            search_domain_filter: approvedSources.filter_sets.classify_formulation,
+            return_citations: true
+          })
+        })
+        if (pRes.ok) {
+          const pData = await pRes.json()
+          const answerText: string = pData.choices[0].message.content
+          citations = parseCitations(answerText, pData.citations ?? [])
+        }
+      } catch (_) { /* citations optional */ }
+    }
+
+    return new Response(JSON.stringify({ ...result, classification: classificationKey, citations, model_used, complete: true }), {
       headers: { 'Content-Type': 'application/json', ...corsHeaders(req) }
     })
 
