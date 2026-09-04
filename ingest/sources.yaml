@@ -1,0 +1,48 @@
+# Nyaaya AI — Hybrid RAG statute sources
+#
+# Each entry describes one act on IndiaCode. `act_uuid` is the DSpace item UUID
+# (used in URLs like /act/<act_uuid>/sections). `act_id` is the internal
+# identifier used in Discover API filters (dc.identifier.act_id).
+#
+# To add a new act:
+#   1. Find it on https://indiacode.gov.in/home
+#   2. Open its sections page — copy the UUID from the URL
+#   3. Open DevTools → Network → filter "discover" — copy the act_id from the
+#      f.act_id query param
+#   4. Add an entry below, then re-run scrape.py
+
+acts:
+  - id: patents-act-1970
+    display: "Patents Act, 1970"
+    act_uuid: a49ad42b-f2dc-4ee2-9884-11ef0839798d
+    act_id: AC_CEN_11_61_00002_197039_1517807321764
+    priority: 1  # 1 = core corpus (v1 scope), 2 = future
+
+  # --- TODO for later PRs — v1 ships with Patents Act only for review ---
+  # - id: gi-act-1999
+  #   display: "Geographical Indications of Goods (Registration and Protection) Act, 1999"
+  #   act_uuid: TBD
+  #   act_id: TBD
+  #   priority: 1
+  #
+  # - id: bd-act-2002
+  #   display: "Biological Diversity Act, 2002"
+  #   act_uuid: TBD
+  #   act_id: TBD
+  #   priority: 1
+  #
+  # - id: trade-marks-act-1999
+  #   display: "Trade Marks Act, 1999"
+  #   priority: 1
+  #
+  # - id: copyright-act-1957
+  #   display: "Copyright Act, 1957"
+  #   priority: 1
+  #
+  # - id: dc-act-1940
+  #   display: "Drugs and Cosmetics Act, 1940"
+  #   priority: 1
+  #
+  # - id: ppvfr-act-2001
+  #   display: "Protection of Plant Varieties and Farmers' Rights Act, 2001"
+  #   priority: 1

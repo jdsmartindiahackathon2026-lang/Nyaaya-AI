@@ -28,6 +28,10 @@ supabase/.temp/
 
 # OS
 .DS_Store
+
+# Ingest pipeline — raw scrapes are heavy and regeneratable; chunks are committed
+scraped/raw/
+ingest/.venv/
 Thumbs.db
 
 # IDE
