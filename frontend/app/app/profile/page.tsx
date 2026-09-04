@@ -32,11 +32,28 @@ interface Preferences {
   auto_translate?: boolean
   reduced_motion?: boolean
   font_size?: 'small' | 'medium' | 'large'
+  allow_anon_queries?: boolean
+  notifications?: {
+    escalation?: boolean
+    digest?: boolean
+    new_statute?: boolean
+    rate_limit?: boolean
+    marketing?: boolean
+    override_email?: string
+  }
 }
 
 interface ActivityEvent {
   event_type: string
   label: string
+  created_at: string
+}
+
+interface EscalationRow {
+  id: string
+  query_summary: string
+  status: string
+  urgency: string
   created_at: string
 }
 
@@ -193,8 +210,8 @@ function TextareaRow({ label, value, onChange, placeholder }: {
   )
 }
 
-function ReadonlyRow({ label, value, badge, buttonLabel, onButton }: {
-  label: string; value: string; badge?: string; buttonLabel?: string; onButton?: () => void
+function ReadonlyRow({ label, value, badge, buttonLabel, onButton, buttonDisabled }: {
+  label: string; value: string; badge?: string; buttonLabel?: string; onButton?: () => void; buttonDisabled?: boolean
 }) {
   return (
     <RowDivider>
@@ -203,7 +220,7 @@ function ReadonlyRow({ label, value, badge, buttonLabel, onButton }: {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5, color: '#b7d4c5' }}>{value}</span>
           {badge && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: '0.04em', color: '#7fb0a0', padding: '3px 8px', borderRadius: 999, background: 'rgba(90,201,168,0.1)', border: '1px solid rgba(90,201,168,0.2)' }}>{badge}</span>}
-          {buttonLabel && <HoverButton onClick={onButton}>{buttonLabel}</HoverButton>}
+          {buttonLabel && <HoverButton onClick={buttonDisabled ? undefined : onButton} disabled={buttonDisabled}>{buttonLabel}</HoverButton>}
         </div>
       </div>
     </RowDivider>
@@ -325,13 +342,13 @@ function CountersGrid({ items }: { items: { label: string; value: number | strin
   )
 }
 
-function HoverButton({ children, onClick, style }: { children: React.ReactNode; onClick?: () => void; style?: React.CSSProperties }) {
+function HoverButton({ children, onClick, style, disabled }: { children: React.ReactNode; onClick?: () => void; style?: React.CSSProperties; disabled?: boolean }) {
   const [hov, setHov] = useState(false)
   return (
     <button
-      type="button" onClick={onClick}
+      type="button" onClick={disabled ? undefined : onClick}
       onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{ padding: '6px 12px', borderRadius: 999, border: `1px solid ${hov ? '#3a6c53' : '#2c5040'}`, background: hov ? '#163727' : 'transparent', color: '#b7d4c5', fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, cursor: 'pointer', ...style }}
+      style={{ padding: '6px 12px', borderRadius: 999, border: `1px solid ${hov && !disabled ? '#3a6c53' : '#2c5040'}`, background: hov && !disabled ? '#163727' : 'transparent', color: disabled ? '#5c6f66' : '#b7d4c5', fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, cursor: disabled ? 'not-allowed' : 'pointer', ...style }}
     >{children}</button>
   )
 }
@@ -443,6 +460,56 @@ function DangerZone() {
   )
 }
 
+// ─── Change email inline widget ───────────────────────────────────────────────
+
+function ChangeEmailWidget() {
+  const [open, setOpen] = useState(false)
+  const [newEmail, setNewEmail] = useState('')
+  const [msg, setMsg] = useState('')
+
+  async function handleConfirm() {
+    if (!newEmail.trim()) return
+    try {
+      const { error } = await supabase.auth.updateUser({ email: newEmail.trim() })
+      if (error) throw error
+      setMsg('Check your inbox to confirm the change.')
+      setOpen(false)
+      setNewEmail('')
+    } catch (e) {
+      console.error('Change email error:', e)
+      setMsg('Failed to update email. Try again.')
+    }
+  }
+
+  return (
+    <RowDivider>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '12px 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <div style={{ fontSize: 14, color: '#e7ede9' }}>Email address</div>
+            <div style={{ fontSize: 12, color: '#7fb0a0' }}>Change the email linked to your account</div>
+          </div>
+          <button type="button" onClick={() => { setOpen(o => !o); setMsg('') }}
+            style={{ padding: '9px 16px', borderRadius: 999, border: '1px solid #2c5040', background: 'transparent', color: '#b7d4c5', fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13, fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap' }}
+          >{open ? 'Cancel' : 'Change email'}</button>
+        </div>
+        {open && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input
+              type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="New email address"
+              style={{ flex: 1, minWidth: 200, padding: '9px 12px', borderRadius: 8, border: '1px solid rgba(90,201,168,0.25)', background: 'rgba(6,14,12,0.8)', color: '#f2f6f3', fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13.5 }}
+            />
+            <button type="button" onClick={handleConfirm}
+              style={{ padding: '9px 16px', borderRadius: 999, border: '1px solid #1f5f4b', background: '#1f5f4b', color: '#eafaf0', fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13, fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap' }}
+            >Confirm</button>
+          </div>
+        )}
+        {msg && <div style={{ fontSize: 12, color: '#7fd9ae' }}>{msg}</div>}
+      </div>
+    </RowDivider>
+  )
+}
+
 // ─── Tab content renderer ─────────────────────────────────────────────────────
 
 interface TabContentProps {
@@ -451,6 +518,9 @@ interface TabContentProps {
   email: string
   activity: ActivityEvent[]
   usageCounts: { conversations: number; abs: number; tkdl: number; classify: number; escalations: number }
+  rateLimits: { ask: number; classify: number; abs: number }
+  openEscalations: EscalationRow[]
+  resolvedEscalations: EscalationRow[]
   // form state
   fullName: string; setFullName: (v: string) => void
   org: string; setOrg: (v: string) => void
@@ -459,6 +529,7 @@ interface TabContentProps {
   locationCity: string; setLocationCity: (v: string) => void
   languagesSpoken: string[]; toggleLanguage: (v: string) => void
   avatarUrl: string | null; onAvatarUpload: (url: string) => void
+  userType: string; setUserType: (v: string) => void
   // preferences
   interfaceLang: string; setInterfaceLang: (v: string) => void
   answerStyle: string; setAnswerStyle: (v: string) => void
@@ -489,7 +560,7 @@ interface TabContentProps {
 }
 
 function TabContent(props: TabContentProps) {
-  const { tab, user, email, activity, usageCounts } = props
+  const { tab, user, email, activity, usageCounts, rateLimits, openEscalations, resolvedEscalations } = props
 
   function copyText(text: string) {
     try { navigator.clipboard.writeText(text) } catch {}
@@ -510,7 +581,7 @@ function TabContent(props: TabContentProps) {
           <AvatarRow initial={initial} avatarUrl={props.avatarUrl} onUpload={props.onAvatarUpload} />
           <TextRow label="Full name" value={props.fullName} onChange={props.setFullName} placeholder="Your name" />
           <ReadonlyRow label="Email" value={email || '—'} badge="Verify to change" />
-          <SelectRow label="User type" value={user?.user_type ?? 'startup'} onChange={() => {}} options={[
+          <SelectRow label="User type" value={props.userType} onChange={props.setUserType} options={[
             { value: 'practitioner', label: 'Practitioner' },
             { value: 'formulator', label: 'Formulator' },
             { value: 'startup', label: 'Ayush startup' },
@@ -589,30 +660,41 @@ function TabContent(props: TabContentProps) {
           <CountersGrid items={[
             { label: 'Conversations', value: usageCounts.conversations },
             { label: 'ABS diagnoses', value: usageCounts.abs },
-            { label: 'TKDL searches', value: usageCounts.tkdl },
-            { label: 'Classify runs', value: usageCounts.classify },
+            { label: 'TKDL searches', value: usageCounts.tkdl === 0 ? '—' : usageCounts.tkdl },
+            { label: 'Classify runs', value: usageCounts.classify === 0 ? '—' : usageCounts.classify },
             { label: 'Escalations', value: usageCounts.escalations },
           ]} />
           <ListRow label="Recent activity" items={activity.slice(0, 20).map(ev => ({ title: ev.label, sub: new Date(ev.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) }))} />
           <ButtonRow label="Full conversation history" desc="Every question you have asked, in the Ask sidebar" buttonLabel="View in Ask" onClick={() => props.router.push('/app/ask')} />
+          <NoteRow tone="soon" text="Bookmarking arrives with a future release." />
           <ListRow label="Saved answers & bookmarked citations" items={[]} />
+          <NoteRow tone="soon" text="Downloaded memos will be listed here in a future release." />
           <ListRow label="Downloaded memos" items={[]} />
         </>
       )
 
-    case 'escalations':
+    case 'escalations': {
+      const openItems: ListItem[] = openEscalations.map(e => ({
+        title: e.query_summary,
+        sub: 'Filed ' + new Date(e.created_at).toLocaleDateString('en-IN', { dateStyle: 'medium' }),
+        badge: e.status === 'pending' ? 'Pending' : 'In review',
+        badgeColor: '#c9aa5a', badgeBg: 'rgba(201,170,90,0.12)', badgeBorder: 'rgba(201,170,90,0.3)',
+      }))
+      const resolvedItems: ListItem[] = resolvedEscalations.map(e => ({
+        title: e.query_summary,
+        sub: 'Resolved ' + new Date(e.created_at).toLocaleDateString('en-IN', { dateStyle: 'medium' }),
+        badge: 'Resolved', badgeColor: '#7fd9ae',
+      }))
       return (
         <>
-          <ListRow label="Open tickets" items={[
-            { title: 'Export labelling for UAE market', sub: 'Filed 2 days ago', badge: 'In review', badgeColor: '#c9aa5a', badgeBg: 'rgba(201,170,90,0.12)', badgeBorder: 'rgba(201,170,90,0.3)' }
-          ]} />
-          <ListRow label="History" items={[
-            { title: 'ABS clearance dispute — sourcing region', sub: 'Resolved Jul 2026', badge: 'Resolved', badgeColor: '#7fd9ae' },
-            { title: 'TKDL conflict on formulation name', sub: 'Closed Jun 2026', badge: 'Closed', badgeColor: '#8aab98', badgeBg: 'rgba(138,171,152,0.12)', badgeBorder: 'rgba(138,171,152,0.25)' }
-          ]} />
+          {openItems.length === 0 && <NoteRow text="No open tickets." />}
+          <ListRow label="Open tickets" items={openItems} />
+          {resolvedItems.length === 0 && <NoteRow text="No resolved tickets yet." />}
+          <ListRow label="History" items={resolvedItems} />
           <NoteRow text="Facilitator ratings will appear here once facilitators are onboarded." tone="soon" />
         </>
       )
+    }
 
     case 'notifications':
       return (
@@ -629,10 +711,10 @@ function TabContent(props: TabContentProps) {
     case 'ratelimits':
       return (
         <>
-          <ProgressRow label="Ask" used={21} total={60} />
-          <ProgressRow label="Classify formulation" used={3} total={10} />
-          <ProgressRow label="ABS helper" used={1} total={5} />
-          <ReadonlyRow label="Resets in" value="13h 42m" />
+          <NoteRow text="Usage counts shown are from the current rate-limit window (rolling per minute). Limits reset automatically." />
+          <ProgressRow label="Ask" used={rateLimits.ask} total={20} />
+          <ProgressRow label="Classify formulation" used={rateLimits.classify} total={20} />
+          <ProgressRow label="ABS helper" used={rateLimits.abs} total={5} />
           <NoteRow text="Limits keep the corpus responsive for everyone. Need more headroom? Contact us to raise your quota." />
         </>
       )
@@ -640,22 +722,23 @@ function TabContent(props: TabContentProps) {
     case 'security':
       return (
         <>
+          <ButtonRow label="Sign out" desc="End your session on this device" buttonLabel="Sign out"
+            variant="danger" onClick={async () => {
+              await supabase.auth.signOut()
+              try { ['nyaaya_onboarded', 'nyaaya_userType', 'nyaaya_language', 'nyaaya_jurisdiction'].forEach(k => localStorage.removeItem(k)) } catch {}
+              props.router.replace('/login')
+            }} />
           <ButtonRow label="Password" desc="Reset the password used to sign in" buttonLabel="Forgot password" onClick={async () => {
             if (!email) return
             await supabase.auth.resetPasswordForEmail(email)
           }} />
-          <ButtonRow label="Email address" desc="Change the email linked to your account" buttonLabel="Change email" onClick={() => {}} />
-          <ButtonRow label="Google account" desc="Connected — sign-in via Google is active" buttonLabel="Disconnect" onClick={() => {}} />
+          <ChangeEmailWidget />
+          <ButtonRow label="Google account" desc="Connected — sign-in via Google is active — disconnect requires re-auth" buttonLabel="Disconnect" disabled />
           <ToggleRow label="Two-factor authentication" desc="Ships once Supabase 2FA is on the plan" checked={false} onChange={() => {}} disabled />
-          <ListRow label="Active sessions" items={[
-            { title: 'Chrome on macOS', sub: 'Bengaluru, IN · Active now', badge: 'This device' },
-            { title: 'Safari on iPhone', sub: 'Bengaluru, IN · 2 days ago', buttonLabel: 'Revoke' },
-            { title: 'Chrome on Windows', sub: 'Pune, IN · 9 days ago', buttonLabel: 'Revoke' }
-          ]} />
-          <ListRow label="Recent security events" items={[
-            { title: 'Signed in via Google', sub: 'Today, 10:42 AM' },
-            { title: 'Password changed', sub: 'Jul 12, 2026' }
-          ]} />
+          <NoteRow tone="soon" text="Session management ships once Supabase exposes device sessions." />
+          <ListRow label="Active sessions" items={[]} />
+          <NoteRow tone="soon" text="Security event log requires a security_events table — ships in a future release." />
+          <ListRow label="Recent security events" items={[]} />
         </>
       )
 
@@ -663,9 +746,9 @@ function TabContent(props: TabContentProps) {
       return (
         <>
           <ButtonRow label="Export your data" desc="Download a JSON copy of your profile, answers and history" buttonLabel={props.exportLabel} onClick={props.onExport} variant="primary" />
-          <ButtonRow label="Anonymise my data instead" desc="Keep your queries for corpus improvement, drop personal info" buttonLabel="Anonymise" onClick={() => {}} />
+          <ButtonRow label="Anonymise my data instead" desc="Keep your queries for corpus improvement, drop personal info" buttonLabel="Anonymise" disabled />
           <ToggleRow label="Allow anonymised queries to improve retrieval" checked={props.allowAnonQueries} onChange={() => props.setAllowAnonQueries(!props.allowAnonQueries)} />
-          <ButtonRow label="What we store" desc="Plain-English inventory of the data we keep" buttonLabel="View" onClick={() => {}} />
+          <ButtonRow label="What we store" desc="Plain-English inventory of the data we keep" buttonLabel="View" disabled />
           <DangerZone />
         </>
       )
@@ -673,9 +756,9 @@ function TabContent(props: TabContentProps) {
     case 'legal':
       return (
         <>
-          <ReadonlyRow label="Terms of service" value="Accepted Mar 12, 2026" buttonLabel="View" onButton={() => {}} />
-          <ReadonlyRow label="Privacy policy" value="Accepted Mar 12, 2026" buttonLabel="View" onButton={() => {}} />
-          <ButtonRow label="Disclaimer acknowledgement" desc={'"IP-SAKTI is decision-support, not legal advice." Re-accepted annually.'} buttonLabel="Re-accept" onClick={() => {}} />
+          <ReadonlyRow label="Terms of service" value="Accepted Mar 12, 2026" buttonLabel="View" buttonDisabled />
+          <ReadonlyRow label="Privacy policy" value="Accepted Mar 12, 2026" buttonLabel="View" buttonDisabled />
+          <ButtonRow label="Disclaimer acknowledgement" desc={'"IP-SAKTI is decision-support, not legal advice." Re-accepted annually.'} buttonLabel="Re-accept" disabled />
           <NoteRow text="Facilitator engagement letter becomes available once escalation goes live." tone="soon" />
         </>
       )
@@ -724,6 +807,9 @@ export default function ProfilePage() {
   const [email, setEmail] = useState('')
   const [activity, setActivity] = useState<ActivityEvent[]>([])
   const [usageCounts, setUsageCounts] = useState({ conversations: 0, abs: 0, tkdl: 0, classify: 0, escalations: 0 })
+  const [rateLimits, setRateLimits] = useState({ ask: 0, classify: 0, abs: 0 })
+  const [openEscalations, setOpenEscalations] = useState<EscalationRow[]>([])
+  const [resolvedEscalations, setResolvedEscalations] = useState<EscalationRow[]>([])
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
 
@@ -744,6 +830,7 @@ export default function ProfilePage() {
   const [locationCity, setLocationCity] = useState('')
   const [languagesSpoken, setLanguagesSpoken] = useState<string[]>(['English'])
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+  const [userType, setUserType] = useState('startup')
 
   // Preferences
   const [interfaceLang, setInterfaceLang] = useState('en')
@@ -802,6 +889,7 @@ export default function ProfilePage() {
         setLanguagesSpoken(row.languages_spoken ?? ['English'])
         setAvatarUrl(row.avatar_url ?? null)
         setInterfaceLang(row.language ?? 'en')
+        setUserType(row.user_type ?? 'startup')
         setNotifEmail(authUser.email ?? '')
 
         const prefs = row.preferences as Preferences | null
@@ -813,6 +901,15 @@ export default function ProfilePage() {
           setShowTkdl(prefs.show_tkdl_warnings ?? true)
           setAutoTranslate(prefs.auto_translate ?? true)
           setReducedMotion(prefs.reduced_motion ?? false)
+          setAllowAnonQueries(prefs.allow_anon_queries ?? true)
+          if (prefs.notifications) {
+            setEmailEscalation(prefs.notifications.escalation ?? true)
+            setEmailDigest(prefs.notifications.digest ?? true)
+            setEmailNewStatute(prefs.notifications.new_statute ?? false)
+            setEmailRateLimit(prefs.notifications.rate_limit ?? true)
+            setMarketingOptin(prefs.notifications.marketing ?? false)
+            if (prefs.notifications.override_email) setNotifEmail(prefs.notifications.override_email)
+          }
         }
 
         const ctx = row.context_answers as Record<string, unknown> | null
@@ -821,6 +918,8 @@ export default function ProfilePage() {
           if (ctx.ip_concerns && Array.isArray(ctx.ip_concerns)) setIpConcerns(ctx.ip_concerns as string[])
           if (ctx.export_markets && Array.isArray(ctx.export_markets)) setExportMarkets(ctx.export_markets as string[])
           if (ctx.pain_points) setPainPoints(ctx.pain_points as string)
+          if (typeof ctx.uses_bio_resources === 'boolean') setBioRes(ctx.uses_bio_resources)
+          if (typeof ctx.sources_tk === 'boolean') setSourcesTK(ctx.sources_tk)
         }
 
         // Load activity
@@ -833,8 +932,59 @@ export default function ProfilePage() {
           if (!cancelled && acts) setActivity(acts as ActivityEvent[])
         } catch (e) { console.error('Activity load error:', e) }
 
-        // Usage counts (placeholder until real tables exist)
-        setUsageCounts({ conversations: 0, abs: 0, tkdl: 0, classify: 0, escalations: 0 })
+        // Usage counts — parallel queries
+        try {
+          const userId = (row as UserRow).id
+          const [convRes, absRes, escRes] = await Promise.all([
+            supabase.from('conversations').select('id', { count: 'exact', head: true }).eq('user_id', userId),
+            supabase.from('abs_diagnoses').select('id', { count: 'exact', head: true }).eq('user_id', userId),
+            supabase.from('escalations').select('id', { count: 'exact', head: true }).eq('user_id', userId),
+          ])
+          if (!cancelled) {
+            setUsageCounts({
+              conversations: convRes.count ?? 0,
+              abs: absRes.count ?? 0,
+              tkdl: 0, // no dedicated table — keyed from rate_limits which is deny-all
+              classify: 0,
+              escalations: escRes.count ?? 0,
+            })
+          }
+        } catch (e) { console.error('Usage count error:', e) }
+
+        // Escalations list
+        try {
+          const userId = (row as UserRow).id
+          const { data: escs } = await supabase
+            .from('escalations')
+            .select('id, query_summary, status, urgency, created_at')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false })
+          if (!cancelled && escs) {
+            const open = (escs as EscalationRow[]).filter(e => e.status === 'pending')
+            const resolved = (escs as EscalationRow[]).filter(e => e.status === 'resolved')
+            setOpenEscalations(open)
+            setResolvedEscalations(resolved)
+          }
+        } catch (e) { console.error('Escalations load error:', e) }
+
+        // Rate limits — deny-all RLS so fetch will return empty; show 0/N
+        // We still attempt in case policy is relaxed in future
+        try {
+          const userId = (row as UserRow).id
+          const { data: rl } = await supabase
+            .from('rate_limits')
+            .select('endpoint, count')
+            .eq('user_id', userId)
+          if (!cancelled && rl && rl.length > 0) {
+            const sum = (endpoint: string) =>
+              (rl as { endpoint: string; count: number }[])
+                .filter(r => r.endpoint === endpoint)
+                .reduce((acc, r) => acc + (r.count ?? 0), 0)
+            setRateLimits({ ask: sum('ask-query'), classify: sum('classify-formulation'), abs: sum('escalate') })
+          }
+          // else leave as 0
+        } catch (e) { /* deny-all RLS — expected */ }
+
       } catch (e) {
         console.error('Profile page error:', e)
       }
@@ -856,6 +1006,24 @@ export default function ProfilePage() {
         show_tkdl_warnings: showTkdl,
         auto_translate: autoTranslate,
         reduced_motion: reducedMotion,
+        allow_anon_queries: allowAnonQueries,
+        notifications: {
+          escalation: emailEscalation,
+          digest: emailDigest,
+          new_statute: emailNewStatute,
+          rate_limit: emailRateLimit,
+          marketing: marketingOptin,
+          override_email: notifEmail,
+        },
+      }
+      const ctx = {
+        ...(user.context_answers ?? {}),
+        formulation_focus: formulationFocus,
+        ip_concerns: ipConcerns,
+        export_markets: exportMarkets,
+        uses_bio_resources: biologicalResources,
+        sources_tk: sourcesTK,
+        pain_points: painPoints,
       }
       const { error } = await supabase
         .from('users')
@@ -868,7 +1036,9 @@ export default function ProfilePage() {
           city: locationCity,
           languages_spoken: languagesSpoken,
           language: interfaceLang,
+          user_type: userType,
           preferences: prefs,
+          context_answers: ctx,
           last_active: new Date().toISOString(),
         })
         .eq('auth_id', user.auth_id)
@@ -922,6 +1092,9 @@ export default function ProfilePage() {
   const createdAtLabel = user?.created_at
     ? new Date(user.created_at).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })
     : '—'
+
+  // Tabs where Save bar appears
+  const SAVE_BAR_EXCLUDED = new Set(['legal', 'escalations', 'ratelimits', 'security', 'privacy', 'usage'])
 
   return (
     <div
@@ -1015,6 +1188,9 @@ export default function ProfilePage() {
               email={email}
               activity={activity}
               usageCounts={usageCounts}
+              rateLimits={rateLimits}
+              openEscalations={openEscalations}
+              resolvedEscalations={resolvedEscalations}
               fullName={fullName} setFullName={setFullName}
               org={org} setOrg={setOrg}
               roleInOrg={roleInOrg} setRoleInOrg={setRoleInOrg}
@@ -1022,6 +1198,7 @@ export default function ProfilePage() {
               locationCity={locationCity} setLocationCity={setLocationCity}
               languagesSpoken={languagesSpoken} toggleLanguage={toggleLanguage}
               avatarUrl={avatarUrl} onAvatarUpload={(url) => setAvatarUrl(url)}
+              userType={userType} setUserType={setUserType}
               interfaceLang={interfaceLang} setInterfaceLang={setInterfaceLang}
               answerStyle={answerStyle} setAnswerStyle={setAnswerStyle}
               citationDepth={citationDepth} setCitationDepth={setCitationDepth}
@@ -1048,7 +1225,7 @@ export default function ProfilePage() {
             />
 
             {/* Save bar — only for writable tabs */}
-            {!SOON_TABS.has(activeTab) && !['legal', 'escalations', 'ratelimits', 'security', 'privacy', 'usage'].includes(activeTab) && (
+            {!SOON_TABS.has(activeTab) && !SAVE_BAR_EXCLUDED.has(activeTab) && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingTop: 8, borderTop: '1px solid rgba(90,201,168,0.12)' }}>
                 <button type="button" onClick={handleSave} disabled={saving}
                   style={{ padding: '9px 20px', borderRadius: 999, border: 'none', background: '#1f5f4b', color: '#eafaf0', fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}
