@@ -48,7 +48,7 @@ export default function OnboardingBackground() {
       <div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center', alignItems: 'flex-end', opacity: 0.5 }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/tree-logo-full.png"
+          src="/mini-logo.svg"
           alt=""
           style={{
             width: 'min(70vw, 900px)',
