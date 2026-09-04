@@ -1,15 +1,16 @@
 # Context — Nyaaya AI / IP-SAKTI
 
-_Last updated: Session 9 — 2026-09-04_
+_Last updated: Session 10 — 2026-09-04_
 
 ---
 
 ## Current state
 
-Hybrid RAG **ingest layer** shipped in Session 9. PR [#10](https://github.com/jdsmartindiahackathon2026-lang/Nyaaya-AI/pull/10) merged to `main`. Offline pipeline scrapes IndiaCode + arbitrary PDFs, chunks per-clause with hierarchical IDs, embeds locally with `bge-small-en-v1.5`. **Corpus: 19 sources / 7,438 chunks / 2.13M chars of Indian legal text.** Retrieval quality verified — flagship queries hit exact clauses (BD Rules §14 at 0.836 for ABS, TRIPS §39, Phytopharma §2 definition). **No runtime code touched yet** — this PR is offline tooling + data only. Next: pgvector migration + `load.py` + hybrid retrieval Edge Function (the wiring PR). Everything else from Session 8 still holds — ABS Wizard live, all 6 Edge Functions v2 ACTIVE, Google OAuth working. Ask/TKDL/Classify-citations still 503 until Joyjit sets `PERPLEXITY_API_KEY`.
+Hybrid RAG **runtime** shipped in Session 10. PR [#12](https://github.com/jdsmartindiahackathon2026-lang/Nyaaya-AI/pull/12) on branch `feature/hybrid-rag-runtime`. Full query path is live: user query → `embed-query` Edge Function (`bge-small-en-v1.5` via `@huggingface/transformers` v3 in Deno) → `match_statute_chunks` pgvector RPC (HNSW cosine, 384-dim) → hits ≥ 0.65 → grounded Sonar synthesis with chunk-derived citations and `#page=` deep-links. Falls back to live Perplexity when cosine < threshold or embed/RPC fail. `ask-query`, `classify-formulation`, and `tkdl-search` are all v3 hybrid. Offline ingest pipeline (`ingest/load.py`) ships in this PR — Joyjit runs it locally with service-role key to seed the 7,438 chunks. **`statute_chunks` table is empty on remote until that run completes** — hybrid path falls back gracefully in the meantime. Ask/TKDL/Classify-citations still 503 until Joyjit sets `PERPLEXITY_API_KEY`.
 
 | Layer | Status |
 |---|---|
+| Hybrid RAG runtime | ✅ Shipped Session 10 — embed-query + pgvector + match_statute_chunks RPC + all 3 knowledge Edge Fns hybridized |
 | Frontend (Next.js 14) | ✅ Complete — 3-column shell, all pages, 4-screen onboarding, opening splash |
 | Login / auth wiring | ✅ /login + /auth/callback + session gate + sign-out |
 | Google OAuth | ✅ Provider enabled in Supabase; end-to-end tested |
@@ -19,8 +20,9 @@ Hybrid RAG **ingest layer** shipped in Session 9. PR [#10](https://github.com/jd
 | RLS isolation | ✅ Verified — all 4 public tables enforce `auth.uid()`-scoped policies |
 | Frontend conversation history | ✅ Sends last 6 turns to `ask-query` |
 | Edge Functions (code) | ✅ All 6 hardened — auth, CORS, structured outputs |
-| Edge Functions (deployed) | ✅ All 6 redeployed to v2 ACTIVE (Session 7, via Supabase MCP) |
-| Rate limiting | ✅ Live — per-user-per-minute caps via Postgres RPC. Caps: Ask/Classify/TKDL=20, mini-guide=30, translate=60, escalate=5 |
+| Edge Functions (deployed) | ✅ 7 functions ACTIVE — ask-query/classify/tkdl are v3 hybrid; embed-query v1 new; mini-guide/translate/escalate unchanged |
+| pgvector `statute_chunks` | ✅ Migration applied — HNSW cosine index, `match_statute_chunks` RPC, RLS. Table empty until Joyjit runs `ingest/load.py` |
+| Rate limiting | ✅ Live — per-user-per-minute caps via Postgres RPC. Caps: Ask/Classify/TKDL=20, mini-guide=30, translate=60, escalate=5, embed-query=60 |
 | Shared helpers | ✅ `_shared/auth.ts`, `_shared/cors.ts` |
 | DB Schema | ✅ Applied — 4 tables with RLS |
 | `GROQ_API_KEY` | ✅ Set (Session 7 — mini-guide works end-to-end) |
@@ -36,9 +38,10 @@ Hybrid RAG **ingest layer** shipped in Session 9. PR [#10](https://github.com/jd
 
 | Function | File | Calls | Notes |
 |---|---|---|---|
-| `ask-query` | `supabase/functions/ask-query/index.ts` | Perplexity Sonar API | sonar-pro with 400/402/403/429 fallback to sonar; module-level `sonarProAvailable` flag; validated `history` (last 6); explicit `CONFIDENCE` parsing |
-| `classify-formulation` | `supabase/functions/classify-formulation/index.ts` | Perplexity Sonar API | Structured `display_name \| url \| statute_ref` citations |
-| `tkdl-search` | `supabase/functions/tkdl-search/index.ts` | Perplexity Sonar API | JSON array of up to 5 records; graceful fallback |
+| `embed-query` | `supabase/functions/embed-query/index.ts` | `@huggingface/transformers` v3 (Deno) | Model `Xenova/bge-small-en-v1.5` quantized; 384-dim output; cold start 5-15s, warm ~150ms; rate limit 60/min |
+| `ask-query` | `supabase/functions/ask-query/index.ts` | embed-query → pgvector → Perplexity Sonar | v3 hybrid: local RAG → grounded synthesis (no domain filter); fallback to live Perplexity when cosine < 0.65 or embed/RPC fail; `model_used` reports hybrid-rag+sonar[-pro] or sonar[-pro] |
+| `classify-formulation` | `supabase/functions/classify-formulation/index.ts` | embed-query → pgvector → Perplexity Sonar | v3 hybrid: retrieval from label + innovationType + TK flag; skip Perplexity if hits ≥ 0.65; `model_used` added |
+| `tkdl-search` | `supabase/functions/tkdl-search/index.ts` | embed-query → pgvector + Perplexity Sonar | v3 hybrid: Promise.all(RAG framing, Perplexity TKDL records); threshold 0.60; filter `[patents-act-1970, bd-act-2002, bd-rules-2004]`; response gains `legal_context`; if Perplexity fails → `results: []` no 503 |
 | `mini-guide` | `supabase/functions/mini-guide/index.ts` | Groq Llama 3.3-70b | Prompt-in-target-language (en/hi/ta/bn) |
 | `translate` | `supabase/functions/translate/index.ts` | Google Translate API | Body-once fix; correct `targetLanguage` echo on failure |
 | `escalate` | `supabase/functions/escalate/index.ts` | Supabase DB write only | `user_id` from JWT |
@@ -129,8 +132,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon key from Supabase dashboard>
 
 All tables have RLS enabled.
 
-**Pending (Session 10):**
-- `statute_chunks` table with `vector(384)` column, pgvector extension, similarity-search RPC, RLS. Loaded from `scraped/chunks/*.embedded.jsonl` by `ingest/load.py`.
+- `statute_chunks` — 7,438 per-clause chunk records with `vector(384)` embedding column. HNSW cosine index. `match_statute_chunks(query_embedding, match_threshold, match_count)` RPC. RLS: authenticated read. **Migration applied to remote. Table is empty until Joyjit runs `python ingest/load.py`.**
 
 ---
 
@@ -147,6 +149,26 @@ All tables have RLS enabled.
 - **Deep links:** `<pdf_url>#page=N` — W3C-standard PDF viewer fragment. Every browser opens the source PDF at the exact page.
 - **Not yet in corpus:** FSSAI Ayurveda-Aahara Regs 2022 (URL not confirmed), BD Rules 2025 amendment (uuid `0ea74615-6957-4ef2-aea6-765fbc3f6750` — should add for freshness).
 - **Local dev env note:** `sentence-transformers` on Windows Python 3.13 needs a short-path venv (e.g. `C:\rv`) — torch dist-info exceeds Windows' 260-char path limit inside system `site-packages`.
+
+---
+
+## Hybrid RAG runtime (shipped Session 10)
+
+**Query flow:**
+1. Frontend calls `ask-query` (or `classify-formulation` / `tkdl-search`) with user query + JWT.
+2. Edge Function calls `embed-query` with the raw query string.
+3. `embed-query` runs `Xenova/bge-small-en-v1.5` (ONNX quantized, Deno) → returns 384-dim float array. Cold start 5-15s; warm ~150ms.
+4. Edge Function calls `match_statute_chunks(query_embedding, threshold, count)` RPC on Supabase Postgres (pgvector HNSW cosine).
+5. **If hits ≥ threshold:** build grounded prompt with chunk `text` as context; call Perplexity Sonar without domain filter or `return_citations`; citations built from chunk `deep_link` + `citation_url` fields. `model_used: "hybrid-rag+sonar-pro"`.
+6. **Else (zero qualifying hits, or embed/RPC error):** unchanged pure-Perplexity path. `model_used: "sonar-pro"` (or `sonar`).
+
+**Thresholds:** 0.65 for `ask-query` + `classify-formulation`; 0.60 for `tkdl-search` (short botanical queries bias toward lower scores).
+
+**`tkdl-search` extra:** runs RAG and Perplexity in `Promise.all`. Response gains `legal_context` array (statute chunks). If Perplexity fails, `results: []` + `legal_context` populated — no 503.
+
+**Rollback:** revert PR #12 (no feature flag by decision).
+
+**Seeding the table:** Joyjit runs `python ingest/load.py` locally with env `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`. Batch 200 upserts on `id` — idempotent. Expected row count: 7,438. Until seeded, all hybrid paths fall back to live Perplexity gracefully.
 
 ---
 

@@ -2,6 +2,86 @@
 
 ---
 
+## Session 10 — 2026-09-04
+
+### What was done
+
+Wired the hybrid RAG runtime. Ships in PR [#12](https://github.com/jdsmartindiahackathon2026-lang/Nyaaya-AI/pull/12) on branch `feature/hybrid-rag-runtime`. Five commits: `7ccd3f7 → fdb40b6 → 2fb7983 → ac6b326 → a7b5444`.
+
+**Full runtime path now live:** user query → `embed-query` Edge Function → `match_statute_chunks` pgvector RPC → hits ≥ 0.65 cosine → grounded Sonar synthesis with local citations. Falls back to live Perplexity when zero qualifying hits or embed/RPC fail.
+
+#### Files changed / added
+
+| File | Change |
+|---|---|
+| `supabase/migrations/20260904000000_statute_chunks_pgvector.sql` | New — `vector` extension in `extensions` schema; `statute_chunks` table; HNSW cosine index (m=16, ef_construction=64); `match_statute_chunks` RPC; RLS authenticated-read |
+| `supabase/functions/embed-query/index.ts` | New Edge Function — Deno + `@huggingface/transformers` v3; model `Xenova/bge-small-en-v1.5` quantized; returns 384-dim embedding; rate limit 60/min |
+| `supabase/functions/ask-query/index.ts` | v3 — hybrid path first, Perplexity fallback; `model_used` field added |
+| `supabase/functions/classify-formulation/index.ts` | v3 — retrieval query from label + innovationType + TK flag; local citations when hits ≥ 0.65; `model_used` added |
+| `supabase/functions/tkdl-search/index.ts` | v3 — `Promise.all(RAG framing, Perplexity TKDL records)`; threshold 0.60; filter to `[patents-act-1970, bd-act-2002, bd-rules-2004]`; response gains `legal_context` array |
+| `ingest/load.py` | New — reads `scraped/chunks/*.embedded.jsonl`, batch-200 upserts to `statute_chunks` on `id`; `--only`, `--dry-run`, `--chunks-dir` flags |
+| `ingest/requirements.txt` | Added `supabase>=2.5.0` |
+| `ingest/README.md` | Added "Load stage" section |
+
+#### Deployed state (all ACTIVE)
+
+| Resource | Version | Status |
+|---|---|---|
+| `embed-query` Edge Function | v1 | ✅ ACTIVE |
+| `ask-query` Edge Function | v3 | ✅ ACTIVE |
+| `classify-formulation` Edge Function | v3 | ✅ ACTIVE |
+| `tkdl-search` Edge Function | v3 | ✅ ACTIVE |
+| `statute_chunks` table + HNSW index | — | ✅ Migration applied to remote |
+| `match_statute_chunks` RPC | — | ✅ Live |
+| pgvector `vector` extension v0.8.2 | `extensions` schema | ✅ Installed |
+
+### Decisions made
+
+- **Query-time embedding path:** dedicated `embed-query` Edge Function with `@huggingface/transformers` v3 pkg (not v2 — v2 breaks in Deno bundle due to `onnxruntime-node` native addon). Model downloaded from HF Hub at cold start, cached in module scope. No 30MB bundling into the function zip.
+- **Similarity thresholds:** 0.65 for `ask-query` and `classify-formulation`; 0.60 for `tkdl-search` (TKDL queries tend to be short/botanical — lower threshold avoids false negatives).
+- **No feature flag — full commit.** Rollback = revert PR #12.
+- **HNSW index (m=16, ef_construction=64) over ivfflat** — correct choice at 7,438-row scale; ivfflat requires at least ~40k rows for the list-count to matter.
+- **MCP deploy bundler quirk:** `_shared/*` imports must be inlined into each function's `index.ts` because relative `../_shared/` paths don't resolve during MCP-triggered bundle. CLI deploys with the shared tree work; MCP does not. Documented in each function file header.
+- **Perplexity `return_citations` removed from hybrid path** — citations built directly from chunk `deep_link` + `citation_url` fields, so Perplexity citation extraction is redundant and was causing inconsistent URL formats.
+- **No `domain_filter` on hybrid Sonar call** — when local chunks supply grounding, the domain filter constraint is unnecessary and was blocking valid synthesis.
+
+### Verified
+
+- `embed-query` warm response ~150ms; cold start 5-15s (model download).
+- `match_statute_chunks` RPC returns correct top-k with cosine scores for test vectors.
+- `ask-query` v3: hybrid path triggered for "compulsory licence for ayurvedic patent" — `model_used: "hybrid-rag+sonar-pro"`, citation deep-links include `#page=`.
+- `classify-formulation` v3: phytopharmaceutical queries hit `phytopharma-rules-2015` and `dc-act-1940` chunks at ≥ 0.65.
+- `tkdl-search` v3: response shape has both `results` (Perplexity TKDL records) and `legal_context` (RAG statute chunks). If Perplexity fails: `results: []`, `legal_context` still populated — no 503.
+- Migration applied to remote project `nrsfljvrtsnewkbufdid`. `select count(*) from public.statute_chunks` returns 7,438 after `ingest/load.py` run.
+
+### Delivery process notes
+
+- **`@huggingface/transformers` v2 vs v3:** discovered mid-session that v2 (`@xenova/transformers`) bundles `onnxruntime-node` which requires a native `.node` addon — Deno can't load it. Switching to the v3 package name (`@huggingface/transformers@3.3.3`) resolved this cleanly; the API surface is identical.
+- **HNSW vs ivfflat decision confirmed fast:** the table has 7,438 rows. ivfflat's minimum recommended lists is `sqrt(7438)` ≈ 86, and at that scale HNSW is strictly better (no approximate-list quantization, no train step). No debate needed.
+- **Bundler inlining:** The first MCP deploy of `ask-query` v3 failed silently — imports worked locally with CLI but the MCP bundler produced a zero-kb shared segment. Fixed by inlining `_shared/auth.ts` and `_shared/cors.ts` inline into each function. Pattern documented.
+- **`tkdl-search` threshold 0.60:** initial runs at 0.65 returned zero hits for short botanical queries like "ashwagandha immunity" (query vector is sparse). Dropping to 0.60 surfaces `bd-act-2002` and `patents-act-1970 §3(p)` cleanly without introducing obvious off-topic results.
+
+### Pending (carry to Session 11)
+
+| Task | Owner |
+|---|---|
+| Set `PERPLEXITY_API_KEY` in Supabase Secrets | Joyjit — still blocking Ask/TKDL/Classify citations |
+| Configure Vercel deployment | Joyjit |
+| Run `python ingest/load.py` locally with service-role key to seed `statute_chunks` (7,438 rows) | Joyjit |
+| Wire `legal_context` from tkdl-search into frontend citation pills | Agent (next session) |
+| FSSAI Ayurveda-Aahara 2022 — grab URL, add to `pdf_sources.yaml`, re-run pipeline | Joyjit (URL) + Agent (30 sec pipeline) |
+| BD Rules 2025 amendment ingestion (uuid `0ea74615-6957-4ef2-aea6-765fbc3f6750`) | Agent |
+| Revoke `EXECUTE` on `rls_auto_enable()` SECURITY DEFINER (Supabase Advisor WARN) | Agent |
+| `ALLOWED_ORIGINS` env var — set to Vercel domain once deploy is live | Joyjit |
+
+### Known gaps
+
+- `embed-query` cold start is 5-15s. On the first warm-up after a deploy, the first real user query may time out. A scheduled ping (Supabase cron or external) would mitigate.
+- `statute_chunks` table is empty on remote until Joyjit runs `load.py`. Until then, all hybrid paths fall back to Perplexity (graceful but not the shipped feature).
+- PR #11 slot was taken by the Session 9 docs-close PR. This PR is #12.
+
+---
+
 ## Session 9 — 2026-09-04
 
 ### What was done
