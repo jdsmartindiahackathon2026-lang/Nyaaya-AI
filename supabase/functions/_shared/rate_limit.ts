@@ -9,6 +9,7 @@ export type FunctionName =
   | 'mini-guide'
   | 'translate'
   | 'escalate'
+  | 'embed-query'
 
 export const RATE_LIMITS: Record<FunctionName, number> = {
   'ask-query': 20,
@@ -17,6 +18,7 @@ export const RATE_LIMITS: Record<FunctionName, number> = {
   'mini-guide': 30,
   'translate': 60,
   'escalate': 5,
+  'embed-query': 60,
 }
 
 interface RateLimitUser { id: string; is_service_role?: boolean }
