@@ -6,7 +6,7 @@ _Last updated: Session 10 — 2026-09-04_
 
 ## Current state
 
-Hybrid RAG **runtime** shipped in Session 10. PR [#12](https://github.com/jdsmartindiahackathon2026-lang/Nyaaya-AI/pull/12) on branch `feature/hybrid-rag-runtime`. Full query path is live: user query → `embed-query` Edge Function (`bge-small-en-v1.5` via `@huggingface/transformers` v3 in Deno) → `match_statute_chunks` pgvector RPC (HNSW cosine, 384-dim) → hits ≥ 0.65 → grounded Sonar synthesis with chunk-derived citations and `#page=` deep-links. Falls back to live Perplexity when cosine < threshold or embed/RPC fail. `ask-query`, `classify-formulation`, and `tkdl-search` are all v3 hybrid. Offline ingest pipeline (`ingest/load.py`) ships in this PR — Joyjit runs it locally with service-role key to seed the 7,438 chunks. **`statute_chunks` table is empty on remote until that run completes** — hybrid path falls back gracefully in the meantime. Ask/TKDL/Classify-citations still 503 until Joyjit sets `PERPLEXITY_API_KEY`.
+Hybrid RAG **runtime** shipped in Session 10. PR [#12](https://github.com/jdsmartindiahackathon2026-lang/Nyaaya-AI/pull/12) on branch `feature/hybrid-rag-runtime`. Full query path is live: user query → `embed-query` Edge Function (`bge-small-en-v1.5` via `@huggingface/transformers` v3 in Deno) → `match_statute_chunks` pgvector RPC (HNSW cosine, 384-dim) → hits ≥ 0.65 → grounded Sonar synthesis with chunk-derived citations and `#page=` deep-links. Falls back to live Perplexity when cosine < threshold or embed/RPC fail. `ask-query`, `classify-formulation`, and `tkdl-search` are all v3 hybrid. Offline ingest pipeline (`ingest/load.py`) executed at session close — **`statute_chunks` table holds 7,438 rows across 19 sources**, verified via Supabase MCP. Hybrid RAG runtime is HOT. Two blockers remain: PR #12 not yet merged, and `PERPLEXITY_API_KEY` still unset (Ask/TKDL/Classify-citations still 503 for fallback path + LLM synthesis on hybrid path).
 
 | Layer | Status |
 |---|---|
@@ -21,7 +21,7 @@ Hybrid RAG **runtime** shipped in Session 10. PR [#12](https://github.com/jdsmar
 | Frontend conversation history | ✅ Sends last 6 turns to `ask-query` |
 | Edge Functions (code) | ✅ All 6 hardened — auth, CORS, structured outputs |
 | Edge Functions (deployed) | ✅ 7 functions ACTIVE — ask-query/classify/tkdl are v3 hybrid; embed-query v1 new; mini-guide/translate/escalate unchanged |
-| pgvector `statute_chunks` | ✅ Migration applied — HNSW cosine index, `match_statute_chunks` RPC, RLS. Table empty until Joyjit runs `ingest/load.py` |
+| pgvector `statute_chunks` | ✅ Seeded — 7,438 rows across 19 sources; HNSW cosine index, `match_statute_chunks` RPC, RLS all live |
 | Rate limiting | ✅ Live — per-user-per-minute caps via Postgres RPC. Caps: Ask/Classify/TKDL=20, mini-guide=30, translate=60, escalate=5, embed-query=60 |
 | Shared helpers | ✅ `_shared/auth.ts`, `_shared/cors.ts` |
 | DB Schema | ✅ Applied — 4 tables with RLS |

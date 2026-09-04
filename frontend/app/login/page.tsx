@@ -395,6 +395,8 @@ function LoginPage() {
         {/* Card */}
         <div style={{ position: 'relative', zIndex: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 28, maxWidth: 400, width: '100%', animation: 'loginRiseIn 500ms cubic-bezier(0.22,1,0.36,1) both' }}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, textAlign: 'center' }}>
+            <img src="/mini-logo.svg" alt="Nyaaya AI" width={56} height={66}
+              style={{ marginBottom: 4, filter: 'drop-shadow(0 0 12px rgba(62,207,128,0.55)) drop-shadow(0 2px 10px rgba(0,0,0,0.6))' }} />
             <div style={{ fontFamily: "'Source Serif 4', Georgia, serif", fontSize: 28, fontWeight: 700, letterSpacing: '-0.01em', color: '#f2f6f3', textShadow: '0 2px 20px rgba(0,0,0,0.5)' }}>
               {isSignup ? 'Create your account' : 'Welcome back'}
             </div>
