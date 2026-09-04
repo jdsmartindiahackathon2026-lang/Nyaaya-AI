@@ -1,16 +1,175 @@
+// NOTE: _shared/* imports are intentionally inlined below.
+// The Supabase MCP deploy bundler cannot resolve relative ../_shared/ paths,
+// so all shared helpers (cors, auth, rate_limit) are duplicated here verbatim.
+// Keep in sync with supabase/functions/_shared/ when those files change.
+
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-import { requireUser } from '../_shared/auth.ts'
-import { requireRateLimit } from '../_shared/rate_limit.ts'
-import { corsHeaders, handleOptions } from '../_shared/cors.ts'
-
-const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY')!
-
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import approvedSources from '../_shared/approved_sources.json' assert { type: 'json' }
 
+// ── INLINED: _shared/cors.ts ─────────────────────────────────────────────────
+const ALLOWED_ORIGINS = (Deno.env.get('ALLOWED_ORIGINS') ?? 'http://localhost:3000')
+  .split(',').map(s => s.trim()).filter(Boolean)
+
+function corsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get('Origin') ?? ''
+  const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0] ?? ''
+  return {
+    'Access-Control-Allow-Origin': allowed,
+    'Access-Control-Allow-Headers': 'authorization, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Vary': 'Origin'
+  }
+}
+
+function handleOptions(req: Request): Response {
+  return new Response('ok', { headers: corsHeaders(req) })
+}
+
+// ── INLINED: _shared/auth.ts ─────────────────────────────────────────────────
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+
+const unauthorized = (req: Request) => new Response(
+  JSON.stringify({ error: true, code: 'UNAUTHORIZED', message: 'Authentication required.', retryable: false }),
+  { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(req) } }
+)
+
+async function requireUser(req: Request): Promise<{ error: Response } | { user: { id: string; [key: string]: unknown }; supabase: ReturnType<typeof createClient> }> {
+  const authHeader = req.headers.get('Authorization')
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return { error: unauthorized(req) }
+  }
+
+  const token = authHeader.replace('Bearer ', '')
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+  if (token === SUPABASE_SERVICE_ROLE_KEY) {
+    return { user: { id: 'system', is_service_role: true }, supabase }
+  }
+
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token)
+    if (error || !user) {
+      return { error: unauthorized(req) }
+    }
+    return { user: user as { id: string; [key: string]: unknown }, supabase }
+  } catch (_) {
+    return { error: unauthorized(req) }
+  }
+}
+
+// ── INLINED: _shared/rate_limit.ts ───────────────────────────────────────────
+type FunctionName =
+  | 'ask-query'
+  | 'classify-formulation'
+  | 'tkdl-search'
+  | 'mini-guide'
+  | 'translate'
+  | 'escalate'
+  | 'embed-query'
+
+const RATE_LIMITS: Record<FunctionName, number> = {
+  'ask-query': 20,
+  'classify-formulation': 20,
+  'tkdl-search': 20,
+  'mini-guide': 30,
+  'translate': 60,
+  'escalate': 5,
+  'embed-query': 60,
+}
+
+interface RateLimitUser { id: string; is_service_role?: boolean }
+
+async function requireRateLimit(
+  req: Request,
+  supabase: { rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }> },
+  user: RateLimitUser,
+  functionName: FunctionName,
+): Promise<Response | null> {
+  if (user.is_service_role) return null
+
+  const limit = RATE_LIMITS[functionName]
+
+  const { data, error } = await supabase.rpc('check_rate_limit', {
+    p_user_id: user.id,
+    p_function: functionName,
+    p_limit: limit,
+  })
+
+  if (error) {
+    console.error(`[rate-limit] RPC failed for ${functionName}:`, error)
+    return null
+  }
+
+  const row = Array.isArray(data) ? (data[0] as { allowed?: boolean; reset_at?: string } | undefined) : (data as { allowed?: boolean; reset_at?: string } | null)
+  if (row && row.allowed === false) {
+    return new Response(
+      JSON.stringify({
+        error: true,
+        code: 'RATE_LIMITED',
+        message: `Too many requests. Limit: ${limit}/minute for ${functionName}. Try again in a moment.`,
+        retryable: true,
+        reset_at: row.reset_at,
+      }),
+      {
+        status: 429,
+        headers: {
+          'Content-Type': 'application/json',
+          'Retry-After': '60',
+          ...corsHeaders(req),
+        },
+      },
+    )
+  }
+
+  return null
+}
+
+// ── RAG HELPER ───────────────────────────────────────────────────────────────
+async function retrieveChunks(
+  supabase: ReturnType<typeof createClient>,
+  queryText: string,
+  opts?: { threshold?: number; count?: number; statuteFilter?: string[] }
+): Promise<any[]> {
+  try {
+    const embedRes = await fetch(`${SUPABASE_URL}/functions/v1/embed-query`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ text: queryText }),
+    })
+    if (!embedRes.ok) {
+      console.warn('[rag] embed-query failed:', embedRes.status)
+      return []
+    }
+    const { embedding } = await embedRes.json()
+    const { data } = await supabase.rpc('match_statute_chunks', {
+      query_embedding: embedding,
+      match_threshold: opts?.threshold ?? 0.65,
+      match_count: opts?.count ?? 8,
+    })
+    if (!data) return []
+    const filtered = opts?.statuteFilter?.length
+      ? data.filter((r: any) => opts.statuteFilter!.includes(r.statute_id))
+      : data
+    return filtered
+  } catch (err) {
+    console.warn('[rag] retrieveChunks error:', err)
+    return []
+  }
+}
+
+// ── CONSTANTS ─────────────────────────────────────────────────────────────────
+const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY')!
 const TKDL_DOMAINS = approvedSources.filter_sets.tkdl_search
 
 const DISCLAIMER = 'Records shown are illustrative of TKDL and IndiaCode retrieval. The deployed system queries the official databases directly. A not-found result does not constitute freedom to operate.'
+const DISCLAIMER_PERPLEXITY_MISSING = 'TKDL record lookup is temporarily unavailable. Legal context is sourced from the local statutory corpus. A not-found result does not constitute freedom to operate.'
 
+// ── HANDLER ───────────────────────────────────────────────────────────────────
 serve(async (req) => {
   if (req.method === 'OPTIONS') return handleOptions(req)
 
@@ -30,26 +189,54 @@ serve(async (req) => {
       })
     }
 
-    const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${PERPLEXITY_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'sonar',
-        messages: [
-          {
-            role: 'system',
-            content: `You are a TKDL (Traditional Knowledge Digital Library) search assistant. Search only tkdl.res.in and indiacode.nic.in. Output ONLY a JSON array — no prose, no markdown fences. Each element must have exactly these fields: { "name": "<formulation name>", "status": "documented" | "partial" | "not_found", "tkdlRef": "<AY-XXXX or null>", "description": "<one-sentence summary>", "source": "<url>" }. Return up to 5 records, one per distinct formulation match. Return [] if nothing found.`
-          },
-          { role: 'user', content: `Search TKDL for: ${query}` }
-        ],
-        search_domain_filter: TKDL_DOMAINS,
-        return_citations: true
-      })
-    })
+    // ── Call A (legal framing via local RAG) + Call B (TKDL via Perplexity) in parallel
+    const legalQuery = `${query} biopiracy prior art traditional knowledge patent opposition`
 
-    if (!pRes.ok) {
-      return new Response(JSON.stringify({ error: true, code: 'PERPLEXITY_UNAVAILABLE', message: 'Search service temporarily unavailable.', retryable: true }), {
-        status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(req) }
+    const [legalChunks, pRes] = await Promise.all([
+      retrieveChunks(supabase, legalQuery, {
+        threshold: 0.60,
+        count: 3,
+        statuteFilter: ['patents-act-1970', 'bd-act-2002', 'bd-rules-2004'],
+      }),
+      fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${PERPLEXITY_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'sonar',
+          messages: [
+            {
+              role: 'system',
+              content: `You are a TKDL (Traditional Knowledge Digital Library) search assistant. Search only tkdl.res.in and indiacode.nic.in. Output ONLY a JSON array — no prose, no markdown fences. Each element must have exactly these fields: { "name": "<formulation name>", "status": "documented" | "partial" | "not_found", "tkdlRef": "<AY-XXXX or null>", "description": "<one-sentence summary>", "source": "<url>" }. Return up to 5 records, one per distinct formulation match. Return [] if nothing found.`
+            },
+            { role: 'user', content: `Search TKDL for: ${query}` }
+          ],
+          search_domain_filter: TKDL_DOMAINS,
+          return_citations: true
+        })
+      }).catch(err => {
+        console.warn('[tkdl-search] Perplexity fetch error:', err)
+        return null
+      })
+    ])
+
+    const legal_context = legalChunks.map((c: any) => ({
+      statute_display: c.statute_display,
+      section_number: c.section_number,
+      clause_id: c.clause_id,
+      text: typeof c.text === 'string' ? c.text.slice(0, 300) : '',
+      deep_link: c.deep_link,
+    }))
+
+    // ── Handle Perplexity failure gracefully ──────────────────────────────────
+    if (!pRes || !pRes.ok) {
+      console.warn('[tkdl-search] Perplexity unavailable, returning legal_context only')
+      return new Response(JSON.stringify({
+        results: [],
+        legal_context,
+        model_used: 'hybrid-rag+sonar',
+        disclaimer: DISCLAIMER_PERPLEXITY_MISSING,
+      }), {
+        headers: { 'Content-Type': 'application/json', ...corsHeaders(req) }
       })
     }
 
@@ -60,7 +247,6 @@ serve(async (req) => {
 
     let results: object[]
     try {
-      // Strip markdown fences if present
       const cleaned = answerText.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
       const parsed = JSON.parse(cleaned)
       if (Array.isArray(parsed)) {
@@ -78,7 +264,6 @@ serve(async (req) => {
       }
     } catch (parseErr) {
       console.warn('tkdl-search: JSON parse failed, falling back to single-record mode:', parseErr)
-      // Fallback: single-record behavior
       const status = answerText.toLowerCase().includes('not found') ? 'not_found'
         : answerText.toLowerCase().includes('partial') ? 'partial'
         : 'documented'
@@ -92,7 +277,12 @@ serve(async (req) => {
       }]
     }
 
-    return new Response(JSON.stringify({ results, disclaimer: DISCLAIMER }), {
+    return new Response(JSON.stringify({
+      results,
+      legal_context,
+      model_used: 'hybrid-rag+sonar',
+      disclaimer: DISCLAIMER,
+    }), {
       headers: { 'Content-Type': 'application/json', ...corsHeaders(req) }
     })
 
