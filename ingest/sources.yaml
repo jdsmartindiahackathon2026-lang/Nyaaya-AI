@@ -1,0 +1,124 @@
+# Nyaaya AI — Hybrid RAG statute sources
+#
+# Each entry describes one act on IndiaCode. `act_uuid` is the DSpace item UUID
+# (used in URLs like /act/<act_uuid>/sections). `act_id` is the internal
+# identifier used in Discover API filters (dc.identifier.act_id).
+#
+# To add a new act:
+#   1. Find it on https://indiacode.gov.in/home
+#   2. Open its sections page — copy the UUID from the URL
+#   3. Open DevTools → Network → filter "discover" — copy the act_id from the
+#      f.act_id query param
+#   4. Add an entry below, then re-run scrape.py
+
+acts:
+  - id: patents-act-1970
+    display: "Patents Act, 1970"
+    act_uuid: a49ad42b-f2dc-4ee2-9884-11ef0839798d
+    act_id: AC_CEN_11_61_00002_197039_1517807321764
+    priority: 1
+
+  - id: gi-act-1999
+    display: "Geographical Indications of Goods (Registration and Protection) Act, 1999"
+    act_uuid: 1905d861-7dcd-46d6-a03b-4fe6009dea5b
+    act_id: AC_CEN_11_60_00002_199948_1517807322766
+    priority: 1
+
+  - id: bd-act-2002
+    display: "Biological Diversity Act, 2002"
+    act_uuid: 000de0a3-39ce-4e18-85f0-0c51b4bdab5d
+    act_id: AC_CEN_16_18_000010_200318_1517807327125
+    priority: 1
+
+  - id: trade-marks-act-1999
+    display: "Trade Marks Act, 1999"
+    act_uuid: 62219d21-0553-405b-9ccb-a11b4d9c41c2
+    act_id: AC_CEN_11_60_00004_199947_1517807323972
+    priority: 1
+
+  - id: copyright-act-1957
+    display: "Copyright Act, 1957"
+    act_uuid: 6b893162-631a-453b-a7b9-89685716889b
+    act_id: AC_CEN_9_30_00006_195714_1517807321712
+    priority: 1
+
+  - id: dc-act-1940
+    display: "Drugs and Cosmetics Act, 1940"
+    act_uuid: 8725a8a7-45a4-42e3-9046-e2a6383cd049
+    act_id: AC_CEN_12_13_00023_194023_1523353460112
+    priority: 1
+
+  - id: ppvfr-act-2001
+    display: "Protection of Plant Varieties and Farmers' Rights Act, 2001"
+    act_uuid: 66408705-b196-477f-9229-dc633f393a23
+    act_id: AC_CEN_23_31_00002_200153_1517807322692
+    priority: 1
+
+  # --- Priority 2: regulatory + adjacent acts for Ayurveda-specific queries ---
+
+  - id: designs-act-2000
+    display: "Designs Act, 2000"
+    act_uuid: cd8f2852-7085-432b-a264-7b73a6f01fff
+    act_id: AC_CEN_11_61_00003_200016_1517807322629
+    priority: 2
+
+  - id: dmr-act-1954
+    display: "Drugs and Magic Remedies (Objectionable Advertisements) Act, 1954"
+    act_uuid: a0e67f19-8e2e-4ba2-bde4-6354e5ff7dee
+    act_id: AC_CEN_12_13_00011_195421_1517807322330
+    priority: 2
+
+  - id: fss-act-2006
+    display: "Food Safety and Standards Act, 2006"
+    act_uuid: 901412c2-ea41-4afb-b6d2-8686b27623e6
+    act_id: AC_CEN_39_65_00002_200634_1517807326101
+    priority: 2
+
+  - id: stfd-act-2006
+    display: "Scheduled Tribes and Other Traditional Forest Dwellers (Recognition of Forest Rights) Act, 2006"
+    act_uuid: 1b9423ee-b983-427c-bdf5-d00d41dea094
+    act_id: AC_CEN_42_71_00001_200702_1517807323238
+    priority: 2
+
+  - id: wildlife-act-1972
+    display: "Wild Life (Protection) Act, 1972"
+    act_uuid: 3df23bd4-5433-4baf-92e9-56b72f4f1008
+    act_id: AC_CEN_16_18_00007_197253_1517807324579
+    priority: 2
+
+  - id: consumer-protection-act-2019
+    display: "Consumer Protection Act, 2019"
+    act_uuid: 1b6c1754-47b1-411e-9607-1712a9caf368
+    act_id: AC_CEN_21_44_00007_201935_1596441164903
+    priority: 2
+
+  - id: legal-metrology-act-2009
+    display: "Legal Metrology Act, 2009"
+    act_uuid: 0ad0a862-c909-4033-8dd5-f45ddff817e0
+    act_id: AC_CEN_21_44_00007_201001_1517807327712
+    priority: 2
+
+  - id: pharmacy-act-1948
+    display: "Pharmacy Act, 1948"
+    act_uuid: ead36a50-3aa7-4b8d-b6b1-799b1e7228c9
+    act_id: AC_CEN_12_13_00008_194808_1517807321458
+    priority: 2
+
+  - id: indian-forest-act-1927
+    display: "Indian Forest Act, 1927"
+    act_uuid: 37dca006-38b2-4bce-aa46-7bfedd805224
+    act_id: AC_CEN_16_0_00013_192716_1523350029217
+    priority: 2
+
+  # --- Not on IndiaCode's Central Acts collection — need alternate sourcing ---
+  #
+  # FSSAI Ayurveda-Aahar Regulations 2022 — download from
+  #   https://www.fssai.gov.in/cms/food-safety-and-standards-regulations.php
+  # Phytopharmaceutical Drug Rules 2015 — Gazette G.S.R. 918(E) 30-Nov-2015 via
+  #   https://cdsco.gov.in/opencms/opencms/en/Notifications/
+  # TRIPS Agreement (Arts 27, 39) — https://www.wto.org/english/docs_e/legal_e/27-trips.pdf
+  #
+  # These are single PDFs (not multi-section acts), so they'll get a separate
+  # ingest path in a follow-up PR: `scrape_pdf.py` that takes a URL + jurisdiction
+  # metadata and produces the same chunk format, chunking by paragraph rather
+  # than by section header.

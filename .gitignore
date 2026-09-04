@@ -28,6 +28,12 @@ supabase/.temp/
 
 # OS
 .DS_Store
+
+# Ingest pipeline — raw scrapes and embeddings are heavy and regeneratable;
+# only the pre-embedding chunks/*.jsonl files are committed as source of truth.
+scraped/raw/
+scraped/chunks/*.embedded.jsonl
+ingest/.venv/
 Thumbs.db
 
 # IDE
