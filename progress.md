@@ -2,6 +2,94 @@
 
 ---
 
+## Session 9 — 2026-09-04
+
+### What was done
+
+Built the offline ingest pipeline for the hybrid RAG corpus. Ships in PR [#10](https://github.com/jdsmartindiahackathon2026-lang/Nyaaya-AI/pull/10) — MERGED into `main`. Five commits: `0ad9cf5 → 4871f7a → 32e7aab → 4a5e5bf → a042307`.
+
+**Corpus totals: 19 sources, 7,438 per-clause chunks, 29,669 lines of statute text, 2.13M characters.** All chunk data committed under `scraped/chunks/*.jsonl`.
+
+#### Ingest pipeline files
+
+| File | Purpose |
+|---|---|
+| `ingest/sources.yaml` | 16 IndiaCode acts with `act_uuid` + `act_id` for the DSpace Discover API |
+| `ingest/pdf_sources.yaml` | 3 single-PDF sources (BD Rules, Phytopharma Rules, TRIPS) with `pdf_url` + `chunk_pattern` |
+| `ingest/scrape.py` | DSpace API → section metadata + downloads the ORIGINAL PDF (IndiaCode's own TEXT bitstream is silently capped at ~100 KB per act — bypassed by parsing the PDF ourselves via pypdf). Prefers English PDF over Hindi when both variants exist |
+| `ingest/scrape_pdf.py` | Downloads any PDF from a URL, validates via `%PDF-` magic bytes (FSSAI returns 200 with a 3.2KB HTML error page for missing files — this catches that) |
+| `ingest/chunk.py` | Per-clause hierarchical chunker (subsection → clause → sub-clause). IDs like `84(6)(iv)`, `84(7)(a)(iii)`. Handles OCR quirks: mangled em-dashes (`\uFFFD`), intra-word spaces, plural/singular drift between API titles and PDF text. Skips repealed/omitted sections cleanly |
+| `ingest/chunk_pdf.py` | Pluggable chunker for single-PDF sources: `rule` / `article` / `regulation` / `paragraph` patterns. Emits same JSONL shape so `embed.py` handles both interchangeably |
+| `ingest/embed.py` | Local `BAAI/bge-small-en-v1.5` (384-dim, MIT). Prepends parent-context header at embed time so per-clause chunks don't lose section context |
+| `ingest/README.md` | How to run + how to add an act |
+
+#### Corpus breakdown (19 sources)
+
+| Category | Sources |
+|---|---|
+| IP core (5) | Patents Act 1970 (764), Trade Marks Act 1999 (713), Copyright Act 1957 (559), Designs Act 2000 (212), GI Act 1999 (359) |
+| Biodiversity + ABS (5) | BD Act 2002 (322), **BD Rules 2004 (46)**, STFD Act 2006 (124), Wild Life Act 1972 (851), Indian Forest Act 1927 (558) |
+| Drug/food regulation (5) | D&C Act 1940 (470), **Phytopharma Rules 2015 (18)**, FSS Act 2006 (687), Drugs and Magic Remedies Act 1954 (66), Pharmacy Act 1948 (263) |
+| Consumer/labelling (2) | Consumer Protection Act 2019 (620), Legal Metrology Act 2009 (267) |
+| Plant varieties (1) | PPV&FR Act 2001 (461) |
+| **International (1)** | **TRIPS Agreement (78)** |
+
+### Decisions made
+
+- **Chunking granularity: per-clause hierarchical, not per-section.** IDs walk the tree so `84(1)(a)`, `84(1)(a)(i)`, `84(7)(b)` are all distinct records. Costs more chunks but citations become exact.
+- **Local embeddings, not OpenAI.** `bge-small-en-v1.5` — 384-dim, ~130MB model, CPU-only. Whole 7,438-chunk corpus embeds in ~4 minutes. No API keys needed. Fits the privacy story.
+- **`.embedded.jsonl` files are gitignored.** Bulky (~7MB per act ≈ 100MB total across 19 sources), regenerable in minutes. Only the pre-embedding `chunks/*.jsonl` files are committed as source of truth. `load.py` (next PR) will upload the .embedded files directly to pgvector, not through git.
+- **Two chunker paths kept separate.** `chunk.py` for IndiaCode acts (regex assumes `<num>. <title>.—<body>` shape), `chunk_pdf.py` for arbitrary PDFs (pluggable patterns). Avoids regex complexity creep in the main chunker.
+- **PDF sourcing preferred over IndiaCode's TEXT bitstream.** Discovered mid-build: IndiaCode caps their pre-extracted text at ~100 KB per act, silently truncating longer statutes. Patents Act was cut at section 65. Parsing the PDF ourselves gives full coverage.
+- **Deep-linking via `#page=N` PDF fragment.** W3C-standard, honoured by all major browsers' built-in PDF viewers. Every chunk carries a `deep_link` that opens the source PDF at the exact page.
+- **FSSAI Ayurveda-Aahara Regulations 2022 deferred.** Their site returns 200 with a 3.2KB HTML error page for every guessed URL and internal search hides direct PDF links. Left as labeled TODO in `pdf_sources.yaml` — Joyjit to grab the current URL manually.
+
+### Verified
+
+Cross-corpus retrieval on real Ayurveda queries (bge-small `query: ` prefix, cosine similarity, no post-processing):
+
+| Query | Top hit | Score |
+|---|---|---:|
+| Compulsory license for Ayurveda patent | `patents-act-1970 §84(7)(a)(iii)` | 0.780 |
+| Traditional Ayurveda knowledge patentability | `patents-act-1970 §25(1)(k)` (anti-biopiracy) | 0.716 |
+| Aggregation of known properties | `patents-act-1970 §3(p)` (traditional knowledge) | 0.609 |
+| Labelling requirements for Ayurvedic products | `dc-act-1940 §33N(2)(f)` — literally "packing of Ayurvedic, Siddha and Unani drugs" | 0.746 |
+| **Fee/form for accessing biological resources** | **`bd-rules-2004 §14` at 0.836 + `bd-act-2002 §19(1)` at 0.809 — statute + rules stacked** | 0.836 |
+| What is a phytopharmaceutical drug | `phytopharma-rules-2015 §2` (with the actual regulatory definition) | 0.783 |
+| International undisclosed test data obligations | `trips-agreement §39` | high (verified qualitatively) |
+
+Embedder timing: ~4 min CPU for the full 7,438-chunk corpus. First run downloads bge-small (~130MB, cached under `~/.cache/huggingface/`).
+
+### Delivery process notes
+
+- **Discovered mid-build that IndiaCode's TEXT bitstream is capped at 100KB.** Would have shipped a broken corpus without this catch. Pivoted to `pypdf` extraction on the ORIGINAL PDF bundle.
+- **Dev environment quirks.** Windows long-path limit hit when installing `torch` into system Python 3.13's user site-packages — worked around with a short-path venv at `C:\rv`. Torch install path was 260+ chars into `flash-attention/third_party/aiter/3rdparty/composable_kernel/docs`. Documented in the ingest README indirectly.
+- **DSpace API is a goldmine.** IndiaCode is DSpace 7 under the hood; `discover/search/objects` + `core/items/<uuid>/bundles` gave us everything without any HTML scraping. The user-facing UI's per-section clicks are broken JS — no stable URLs — so we bypass the UI entirely and cite deep-links into the PDF bitstream.
+- **Regex tuning was iterative.** 4 chunker rounds on Patents Act took the chunk count from 105 → 501 → 764 as we fixed: mangled em-dash separator, plural/singular drift in titles ("specifications" vs "specification s"), intra-word OCR spaces, plain-hyphen false matches inside footnote dates ("1-1-2005"). Every fix was tested against Section 3(p) — the flagship traditional-knowledge clause — as the canary.
+
+### Pending (carry to Session 10)
+
+| Task | Owner |
+|---|---|
+| Merge PR #10 | Joyjit (marked done in this closure) |
+| Set `PERPLEXITY_API_KEY` in Supabase Secrets | Joyjit — still blocking Ask/TKDL/Classify-citations |
+| **NEXT PR: pgvector migration + `load.py` + retrieval Edge Function** | Agent — this is the whole point |
+| Rewrite `ask-query` to hybrid: local RAG → fallback Perplexity when cosine < threshold | Agent |
+| Wire retrieval results into frontend citation pills (should be no-op — same JSON shape) | Agent |
+| Grab FSSAI Ayurveda-Aahara 2022 PDF URL, add to `pdf_sources.yaml`, re-run pipeline | Joyjit (URL) + Agent (30 sec pipeline) |
+| BD Rules 2025 amendment on IndiaCode (uuid `0ea74615-6957-4ef2-aea6-765fbc3f6750`) — consider ingesting | Agent |
+| Vercel deploy + `NEXT_PUBLIC_*` env vars + branch protection on `main` | Joyjit |
+| E2E smoke test (once Perplexity key + Vercel live) | Agent |
+
+### Known gaps / risks
+
+- **BD Rules 2025 amendment** exists on IndiaCode but not yet ingested — only BD Rules 2004. Should add for freshness.
+- **Retrieval is not actually wired into the app yet.** This PR is the offline data layer only. `ask-query` still calls Perplexity live. Hybrid path lands in the next PR.
+- **19 duplicate `(section, clause_id)` pairs in the old (Session 9 pre-dedup) chunks** were resolved by suffixing `-2`, `-3` etc. — Section 10 had 4, others 1-2 each. All 7,438 chunks now have unique ids.
+- **FSSAI Ayurveda-Aahara 2022 still missing.** Notable gap for the food-vs-drug boundary questions that Ayurveda-Aahar practitioners will ask.
+
+---
+
 ## Session 8 — 2026-09-04
 
 ### What was done
