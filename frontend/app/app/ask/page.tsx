@@ -57,6 +57,17 @@ function AskPage() {
   const [conversations, setConversations] = useState<ConversationRow[]>([])
   const [activeConvId, setActiveConvId] = useState<string | null>(null)
   const [loadingConv, setLoadingConv] = useState(false)
+  const [railOpen, setRailOpen] = useState(true)
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('nyaaya_ask_rail_open')
+      if (stored !== null) setRailOpen(stored === '1')
+    } catch {}
+  }, [])
+  useEffect(() => {
+    try { localStorage.setItem('nyaaya_ask_rail_open', railOpen ? '1' : '0') } catch {}
+  }, [railOpen])
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const autoSentRef = useRef(false)
@@ -210,32 +221,75 @@ function AskPage() {
     <div style={{ display: 'flex', height: '100%', minHeight: 0 }}>
       {/* ── Chat history rail ─────────────────────────────────────────────── */}
       <aside style={{
-        width: 220, flexShrink: 0,
+        width: railOpen ? 220 : 44, flexShrink: 0,
         borderRight: '1px solid var(--border)',
         display: 'flex', flexDirection: 'column',
         background: 'rgba(7,13,11,0.35)',
         overflow: 'hidden',
+        transition: 'width 220ms cubic-bezier(0.22,1,0.36,1)',
       }}>
-        <div style={{ padding: '16px 12px 10px', borderBottom: '1px solid var(--border)' }}>
-          <button onClick={startNewChat} style={{
-            width: '100%',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-            padding: '9px 12px', borderRadius: 8,
-            border: '1px solid var(--border-hi)',
-            background: 'rgba(28,74,55,0.35)',
-            color: 'var(--accent)',
-            fontFamily: "'IBM Plex Sans', sans-serif",
-            fontSize: 13, fontWeight: 500,
-            cursor: 'pointer',
-            transition: 'background 150ms, border-color 150ms',
-          }}
+        <div style={{
+          padding: railOpen ? '16px 12px 10px' : '12px 6px 10px',
+          borderBottom: '1px solid var(--border)',
+          display: 'flex', alignItems: 'center', gap: 6,
+        }}>
+          {railOpen && (
+            <button onClick={startNewChat} style={{
+              flex: 1,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              padding: '9px 12px', borderRadius: 8,
+              border: '1px solid var(--border-hi)',
+              background: 'rgba(28,74,55,0.35)',
+              color: 'var(--accent)',
+              fontFamily: "'IBM Plex Sans', sans-serif",
+              fontSize: 13, fontWeight: 500,
+              cursor: 'pointer',
+              transition: 'background 150ms, border-color 150ms',
+            }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(28,74,55,0.6)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(28,74,55,0.35)' }}
+            >
+              <span style={{ fontSize: 16, lineHeight: 1, marginTop: -1 }}>+</span> New chat
+            </button>
+          )}
+          <button onClick={() => setRailOpen(o => !o)}
+            title={railOpen ? 'Collapse chat history' : 'Expand chat history'}
+            aria-label={railOpen ? 'Collapse chat history' : 'Expand chat history'}
+            style={{
+              width: 32, height: 32, flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              borderRadius: 6, border: '1px solid var(--border)',
+              background: 'transparent', color: 'var(--text-lo)',
+              cursor: 'pointer', fontSize: 14, lineHeight: 1,
+              transition: 'background 120ms, color 120ms',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(28,74,55,0.35)'; e.currentTarget.style.color = 'var(--accent)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-lo)' }}
+          >
+            {railOpen ? '‹' : '›'}
+          </button>
+        </div>
+        {!railOpen && (
+          <button onClick={startNewChat}
+            title="New chat"
+            aria-label="New chat"
+            style={{
+              margin: '10px 6px 4px',
+              width: 32, height: 32,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              borderRadius: 6, border: '1px solid var(--border-hi)',
+              background: 'rgba(28,74,55,0.35)',
+              color: 'var(--accent)',
+              cursor: 'pointer', fontSize: 18, lineHeight: 1,
+              transition: 'background 150ms',
+            }}
             onMouseEnter={e => { e.currentTarget.style.background = 'rgba(28,74,55,0.6)' }}
             onMouseLeave={e => { e.currentTarget.style.background = 'rgba(28,74,55,0.35)' }}
           >
-            <span style={{ fontSize: 16, lineHeight: 1, marginTop: -1 }}>+</span> New chat
+            +
           </button>
-        </div>
-        <div style={{ flex: 1, overflowY: 'auto', padding: '8px 6px 16px' }}>
+        )}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '8px 6px 16px', display: railOpen ? 'block' : 'none' }}>
           {conversations.length === 0 ? (
             <div style={{ padding: '12px 8px', fontSize: 11.5, color: 'var(--text-xs)', lineHeight: 1.5 }}>
               No past conversations yet. Ask your first question to start one.
