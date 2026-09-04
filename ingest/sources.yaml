@@ -16,33 +16,53 @@ acts:
     display: "Patents Act, 1970"
     act_uuid: a49ad42b-f2dc-4ee2-9884-11ef0839798d
     act_id: AC_CEN_11_61_00002_197039_1517807321764
-    priority: 1  # 1 = core corpus (v1 scope), 2 = future
+    priority: 1
 
-  # --- TODO for later PRs — v1 ships with Patents Act only for review ---
-  # - id: gi-act-1999
-  #   display: "Geographical Indications of Goods (Registration and Protection) Act, 1999"
-  #   act_uuid: TBD
-  #   act_id: TBD
-  #   priority: 1
+  - id: gi-act-1999
+    display: "Geographical Indications of Goods (Registration and Protection) Act, 1999"
+    act_uuid: 1905d861-7dcd-46d6-a03b-4fe6009dea5b
+    act_id: AC_CEN_11_60_00002_199948_1517807322766
+    priority: 1
+
+  - id: bd-act-2002
+    display: "Biological Diversity Act, 2002"
+    act_uuid: 000de0a3-39ce-4e18-85f0-0c51b4bdab5d
+    act_id: AC_CEN_16_18_000010_200318_1517807327125
+    priority: 1
+
+  - id: trade-marks-act-1999
+    display: "Trade Marks Act, 1999"
+    act_uuid: 62219d21-0553-405b-9ccb-a11b4d9c41c2
+    act_id: AC_CEN_11_60_00004_199947_1517807323972
+    priority: 1
+
+  - id: copyright-act-1957
+    display: "Copyright Act, 1957"
+    act_uuid: 6b893162-631a-453b-a7b9-89685716889b
+    act_id: AC_CEN_9_30_00006_195714_1517807321712
+    priority: 1
+
+  - id: dc-act-1940
+    display: "Drugs and Cosmetics Act, 1940"
+    act_uuid: 8725a8a7-45a4-42e3-9046-e2a6383cd049
+    act_id: AC_CEN_12_13_00023_194023_1523353460112
+    priority: 1
+
+  - id: ppvfr-act-2001
+    display: "Protection of Plant Varieties and Farmers' Rights Act, 2001"
+    act_uuid: 66408705-b196-477f-9229-dc633f393a23
+    act_id: AC_CEN_23_31_00002_200153_1517807322692
+    priority: 1
+
+  # --- Not on IndiaCode's Central Acts collection — need alternate sourcing ---
   #
-  # - id: bd-act-2002
-  #   display: "Biological Diversity Act, 2002"
-  #   act_uuid: TBD
-  #   act_id: TBD
-  #   priority: 1
+  # FSSAI Ayurveda-Aahar Regulations 2022 — download from
+  #   https://www.fssai.gov.in/cms/food-safety-and-standards-regulations.php
+  # Phytopharmaceutical Drug Rules 2015 — Gazette G.S.R. 918(E) 30-Nov-2015 via
+  #   https://cdsco.gov.in/opencms/opencms/en/Notifications/
+  # TRIPS Agreement (Arts 27, 39) — https://www.wto.org/english/docs_e/legal_e/27-trips.pdf
   #
-  # - id: trade-marks-act-1999
-  #   display: "Trade Marks Act, 1999"
-  #   priority: 1
-  #
-  # - id: copyright-act-1957
-  #   display: "Copyright Act, 1957"
-  #   priority: 1
-  #
-  # - id: dc-act-1940
-  #   display: "Drugs and Cosmetics Act, 1940"
-  #   priority: 1
-  #
-  # - id: ppvfr-act-2001
-  #   display: "Protection of Plant Varieties and Farmers' Rights Act, 2001"
-  #   priority: 1
+  # These are single PDFs (not multi-section acts), so they'll get a separate
+  # ingest path in a follow-up PR: `scrape_pdf.py` that takes a URL + jurisdiction
+  # metadata and produces the same chunk format, chunking by paragraph rather
+  # than by section header.

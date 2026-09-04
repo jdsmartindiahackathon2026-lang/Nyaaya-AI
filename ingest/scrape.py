@@ -118,13 +118,23 @@ def fetch_pdf(act_uuid: str) -> tuple[bytes, dict]:
     pdf_bs = fetch_bitstreams(original_bundle["uuid"])
     if not pdf_bs:
         raise RuntimeError(f"ORIGINAL bundle empty for act {act_uuid}")
-    pdf_url = f"{BASE}/core/bitstreams/{pdf_bs[0]['uuid']}/content"
+
+    # Prefer the English PDF when multiple language variants exist. IndiaCode
+    # convention: filenames starting with lowercase `a` (e.g. a1940-23.pdf) are
+    # English; leading `H` (H1940-23.pdf) are Hindi.
+    english = next(
+        (b for b in pdf_bs if b.get("name", "").split(".")[0].lower().startswith("a")),
+        None,
+    )
+    chosen = english or pdf_bs[0]
+
+    pdf_url = f"{BASE}/core/bitstreams/{chosen['uuid']}/content"
     pdf_bytes = CLIENT.get(pdf_url).content
     pdf_info = {
-        "pdf_uuid": pdf_bs[0]["uuid"],
-        "pdf_name": pdf_bs[0]["name"],
+        "pdf_uuid": chosen["uuid"],
+        "pdf_name": chosen["name"],
         "pdf_content_url": pdf_url,
-        "pdf_size_bytes": pdf_bs[0].get("sizeBytes"),
+        "pdf_size_bytes": chosen.get("sizeBytes"),
     }
     return pdf_bytes, pdf_info
 
