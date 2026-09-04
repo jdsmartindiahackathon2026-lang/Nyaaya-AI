@@ -2,6 +2,45 @@
 
 ---
 
+## Session 11 — 2026-09-04 (close)
+
+### What was done
+- **PR #13 opened** — bundles four punch-list items on branch `feature/conversation-persistence`:
+  - **#10 Conversation persistence + New Chat UI** — `/app/ask` now has a collapsible left rail (220px ↔ 44px, state persisted in `localStorage['nyaaya_ask_rail_open']`) with `+ New chat` button and last-50 conversations list. First send lazy-creates a `conversations` row (jurisdiction from user context, title = first 60 chars of query) and passes its id to `ask-query`, so the `messages` insert at [supabase/functions/ask-query/index.ts:422](supabase/functions/ask-query/index.ts:422) finally fires. Clicking a past conversation hydrates its messages from `public.messages` ordered by `created_at`.
+  - **#8 Login tree logo** — [frontend/public/mini-logo.svg](frontend/public/mini-logo.svg) wired above the "Welcome back" heading at [frontend/app/login/page.tsx:398](frontend/app/login/page.tsx:398) with a green drop-shadow glow. Visually verified in the browser preview.
+  - **Onboarding watermark swap** — [frontend/components/OnboardingBackground.tsx:51](frontend/components/OnboardingBackground.tsx:51) now uses `/mini-logo.svg` instead of `/tree-logo-full.png`. Kills the baked-black-background rectangle; keeps the locked `objectPosition: 'center 38%'` and 0.35 opacity.
+  - **#15 rate_limits lockdown** — [supabase/migrations/20260904020000_rate_limits_lockdown_policy.sql](supabase/migrations/20260904020000_rate_limits_lockdown_policy.sql), applied to remote via MCP. Deny-all RLS policy for authenticated + anon; `check_rate_limit` RPC is SECURITY DEFINER so it still writes. Silences the Supabase advisor INFO.
+- Created [.claude/launch.json](.claude/launch.json) so the browser-preview tool can spin up `npm run dev --prefix frontend` on port 3000.
+
+### Verified
+- `npx tsc --noEmit` clean on the frontend.
+- Login page renders the fractal tree logo above the heading (browser-preview screenshot).
+- Migration applied successfully to remote Supabase (`success: true` from MCP).
+- `/app/ask` is behind the auth gate; Joyjit is walking the New Chat rail interactively.
+
+### Decisions made
+- Conversations rail lives INSIDE `/app/ask` (not in the global LeftSidebar), because it is Ask-specific and shouldn't clutter other pages.
+- Rail default = open; collapsed state persists per-browser.
+- New Chat is lazy — no row is created until the user sends the first query. Avoids empty ghost rows in the sidebar.
+
+### PRs
+- [#13 — feat: conversation persistence + login logo + onboarding logo + rate_limits lockdown](https://github.com/jdsmartindiahackathon2026-lang/Nyaaya-AI/pull/13) (OPEN, MERGEABLE)
+
+### Pending (carry to Session 12)
+| # | Task | Owner | Notes |
+|---|---|---|---|
+| — | Merge PR #13 | Joyjit | After walking the New Chat rail once |
+| 11 | E2E smoke test | Agent | Fires 21 requests, verifies 429; blocked on Perplexity API key |
+| 14 | Landing page | Joyjit → Claude Design | Fresh design per brief in Session 11 chat; paste into `frontend/app/page.tsx`, delete stale `frontend/landing-page.html` |
+| — | Housekeeping | Joyjit | 6 untracked design zips + `Opening video.mp4` + `Yggdrasil tree.png` in `frontend/`; either integrate or move out of repo |
+| — | Perplexity API key | Joyjit | Ongoing blocker for live demo (excluded from this session's asks) |
+
+### Known gaps / risks
+- `/app/ask` rail not visually verified end-to-end by the agent (auth-gated); if Joyjit reports layout issues, revisit inside SIDEBAR_W center pane (~1100px available — should comfortably fit 220px rail + 720px thread).
+- No pagination on conversations list yet — capped at last 50. Fine for demo; revisit if a real user accumulates >50 threads.
+
+---
+
 ## Session 10 — 2026-09-04
 
 ### What was done
