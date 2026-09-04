@@ -1,0 +1,44 @@
+# Nyaaya AI — single-PDF ingest sources
+#
+# For statutes/rules/treaties that are NOT on IndiaCode's Central Acts collection.
+# Each entry is one downloadable PDF. `chunk_pattern` picks the regex that
+# splits the extracted text into per-chunk records:
+#   rule       — matches "Rule N." / "N. <heading>"      (Indian Rules)
+#   article    — matches "Article N" / "Article N.N"     (treaties, WTO)
+#   regulation — matches "<regulation N>" / paragraph    (FSSAI, etc.)
+#   paragraph  — fixed-size paragraph fallback           (unstructured)
+
+sources:
+  - id: bd-rules-2004
+    display: "Biological Diversity Rules, 2004"
+    pdf_url: https://indiacode.gov.in/server/api/core/bitstreams/994f06ac-d9f3-48d7-a058-95bcdb5c2b65/content
+    citation_url: https://indiacode.gov.in/handle/123456789/2076
+    chunk_pattern: rule
+    jurisdiction: india
+
+  - id: phytopharma-rules-2015
+    display: "Drugs and Cosmetics (Eighth Amendment) Rules, 2015 — Phytopharmaceutical Drugs (G.S.R. 918(E))"
+    pdf_url: https://indiacode.gov.in/server/api/core/bitstreams/67693ca8-cb3d-4904-8093-74eada489687/content
+    citation_url: https://indiacode.gov.in/handle/123456789/8091
+    chunk_pattern: rule
+    jurisdiction: india
+
+  - id: trips-agreement
+    display: "TRIPS Agreement (Agreement on Trade-Related Aspects of Intellectual Property Rights, 1994)"
+    pdf_url: https://www.wto.org/english/docs_e/legal_e/27-trips.pdf
+    citation_url: https://www.wto.org/english/docs_e/legal_e/27-trips.pdf
+    chunk_pattern: article
+    jurisdiction: international
+
+  # TODO: FSSAI Ayurveda-Aahara Regulations, 2022
+  # Uncomment and fill `pdf_url` once the exact PDF URL is confirmed. FSSAI's
+  # search returns HTML wrapper pages, and their site returns 200 on missing
+  # files (with a 3.2KB HTML error page), so URLs must be verified by the
+  # `%PDF` magic-byte check in scrape_pdf.py.
+  #
+  # - id: fssai-ayurveda-aahara-2022
+  #   display: "Food Safety and Standards (Ayurveda Aahara) Regulations, 2022"
+  #   pdf_url: TBD
+  #   citation_url: https://fssai.gov.in/cms/food-safety-and-standards-regulations.php
+  #   chunk_pattern: regulation
+  #   jurisdiction: india
