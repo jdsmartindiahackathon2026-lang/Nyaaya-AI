@@ -4,7 +4,7 @@ import { corsHeaders, handleOptions } from '../_shared/cors.ts'
 import { requireRateLimit } from '../_shared/rate_limit.ts'
 import approvedSources from '../_shared/approved_sources.json' assert { type: 'json' }
 
-const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY')!
+const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY')
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
@@ -21,7 +21,8 @@ function getDomainFilter(jurisdiction: string): string[] {
   return approvedSources.filter_sets.ask_query_both
 }
 
-const SYSTEM_PROMPT = (jurisdiction: string, userType: string) => {
+// --- System prompt for live Perplexity path (domain-filtered) ---
+const SYSTEM_PROMPT_LIVE = (jurisdiction: string, userType: string) => {
   const domainList = getDomainFilter(jurisdiction)
     .map((d: string) => {
       const meta = (approvedSources.domains as Record<string, { display: string }>)[d]
@@ -73,21 +74,94 @@ SCOPE: patents, GI, trademarks, designs, copyright, trade secrets, plant variety
 For out-of-scope questions: "This is outside the scope of Nyaaya AI. Please consult a qualified professional."`
 }
 
-async function callPerplexity(model: string, systemPrompt: string, query: string, domainFilter: string[], history: Array<{ role: string; content: string }> = []) {
+// --- System prompt for hybrid RAG path (local chunks provided inline) ---
+const SYSTEM_PROMPT_RAG = (
+  jurisdiction: string,
+  userType: string,
+  hits: Array<{
+    statute_display: string
+    section_number: string
+    clause_id?: string | null
+    section_title?: string | null
+    text: string
+    deep_link?: string | null
+    citation_url?: string | null
+  }>
+) => {
+  const sourceBlock = hits
+    .map((h, i) => {
+      const clauseSuffix = h.clause_id ? ` ${h.clause_id}` : ''
+      const titleSuffix = h.section_title ? ` — ${h.section_title}` : ''
+      const url = h.deep_link || h.citation_url || ''
+      return `[${i + 1}] ${h.statute_display} — Section ${h.section_number}${clauseSuffix}${titleSuffix}
+    URL: ${url}
+    TEXT: ${h.text}`
+    })
+    .join('\n\n')
+
+  return `You are Nyaaya AI, an authoritative legal information assistant specialising exclusively in Intellectual Property law and regulatory compliance for Ayurvedic products.
+
+JURISDICTION: ${jurisdiction}
+USER TYPE: ${userType}
+
+RETRIEVED SOURCES (use ONLY these to answer; do not invent facts or cite anything else):
+${sourceBlock}
+
+If the retrieved sources do not contain enough information to answer, respond exactly: "I cannot find authoritative information on this from official sources."
+
+JURISDICTION RULES:
+- india: answer only from Indian statutes and regulatory frameworks
+- international: answer only from WIPO, TRIPS, CBD, Nagoya Protocol and export market regulations
+- both: answer in two clearly labelled sections — India and International — never conflate them
+
+CITATION RULES:
+- Every factual claim must cite the specific retrieved source by its number [1], [2], etc.
+- Do not invent facts or cite sources not listed above
+
+CONFIDENCE LINE (required, on its own line at the end of your answer):
+CONFIDENCE: HIGH   — answer directly stated in a retrieved source
+CONFIDENCE: MEDIUM — answer required interpretation of a retrieved source
+CONFIDENCE: ABSTAIN — answer not found in retrieved sources
+
+RESPONSE FORMAT:
+1. Answer text (citing retrieved sources by number)
+2. CONFIDENCE: <HIGH|MEDIUM|ABSTAIN>
+3. Disclaimer
+
+DISCLAIMER:
+End every response with: "Information, not legal advice. Verify against the official record before filing."
+
+SCOPE: patents, GI, trademarks, designs, copyright, trade secrets, plant variety rights, ABS compliance, drug regulatory classification, FSSAI Ayurveda-Aahar, international IP frameworks only.
+For out-of-scope questions: "This is outside the scope of Nyaaya AI. Please consult a qualified professional."`
+}
+
+async function callPerplexity(
+  model: string,
+  systemPrompt: string,
+  query: string,
+  domainFilter: string[],
+  history: Array<{ role: string; content: string }>,
+  useSearch: boolean
+) {
+  const body: Record<string, unknown> = {
+    model,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      ...history,
+      { role: 'user', content: query }
+    ],
+    temperature: 0.1,
+  }
+  if (useSearch) {
+    body.search_domain_filter = domainFilter
+    body.return_citations = true
+  } else {
+    body.return_citations = false
+  }
   return fetch('https://api.perplexity.ai/chat/completions', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${PERPLEXITY_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...history,
-        { role: 'user', content: query }
-      ],
-      search_domain_filter: domainFilter,
-      return_citations: true,
-      temperature: 0.1
-    })
+    body: JSON.stringify(body),
   })
 }
 
@@ -124,8 +198,7 @@ function parseCitations(answerText: string, rawCitations: string[]) {
   })
 }
 
-function extractStatuteRef(text: string, domain: string): string {
-  // Extract statute references mentioned near domain citations in the answer text
+function extractStatuteRef(text: string, _domain: string): string {
   const patterns = [
     /(?:Section|Sec\.|Art\.)\s*\d+(?:\([a-z]\))?(?:\s+of\s+[^.]+)?/gi,
     /(?:Rule|Schedule)\s*[A-Z]?\d+[A-Z]?(?:\([a-z]\))?/gi,
@@ -174,30 +247,126 @@ serve(async (req) => {
     }
     const history = validatedHistory.slice(-6)
 
-    const domainFilter = getDomainFilter(jurisdiction)
-    const systemPrompt = SYSTEM_PROMPT(jurisdiction, userType)
+    // -------------------------------------------------------------------------
+    // STEP 1: Embed query via embed-query Edge Function (non-fatal on failure)
+    // -------------------------------------------------------------------------
+    let embedding: number[] | null = null
+    try {
+      const embedRes = await fetch(`${SUPABASE_URL}/functions/v1/embed-query`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text: query }),
+      })
+      if (embedRes.ok) {
+        const embedData = await embedRes.json()
+        if (Array.isArray(embedData.embedding)) {
+          embedding = embedData.embedding as number[]
+        } else {
+          console.warn('[ask-query] embed-query returned unexpected shape:', JSON.stringify(embedData).slice(0, 200))
+        }
+      } else {
+        console.warn('[ask-query] embed-query HTTP error:', embedRes.status, await embedRes.text().catch(() => ''))
+      }
+    } catch (embedErr) {
+      console.warn('[ask-query] embed-query fetch failed:', embedErr)
+    }
 
-    // Try sonar-pro first; skip if known unavailable this worker lifetime
+    // -------------------------------------------------------------------------
+    // STEP 2: Retrieve local statute chunks via pgvector RPC (non-fatal)
+    // -------------------------------------------------------------------------
+    type ChunkHit = {
+      id: string
+      statute_display: string
+      section_number: string
+      clause_id: string | null
+      section_title: string | null
+      text: string
+      deep_link: string | null
+      citation_url: string | null
+      similarity: number
+    }
+    let hits: ChunkHit[] = []
+
+    if (embedding) {
+      const { data, error: rpcError } = await supabase.rpc('match_statute_chunks', {
+        query_embedding: embedding,
+        match_threshold: 0.65,
+        match_count: 8,
+      })
+      if (rpcError) {
+        console.warn('[ask-query] match_statute_chunks RPC error:', rpcError)
+      } else if (Array.isArray(data)) {
+        hits = data as ChunkHit[]
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // STEP 3: Branch — hybrid RAG vs pure live-retrieval
+    // -------------------------------------------------------------------------
+    const useLocalHits = hits.length > 0
+
+    // Guard: if no Perplexity key, we can't call the LLM at all.
+    // TODO(session-11): when local hits exist and PERPLEXITY_API_KEY is absent,
+    // return a synthesized answer built directly from chunk texts instead of 503.
+    if (!PERPLEXITY_API_KEY) {
+      return errorResponse(req, 'PERPLEXITY_MISSING', 'Knowledge service is not configured. Please contact support.', false, 503)
+    }
+
+    const domainFilter = getDomainFilter(jurisdiction)
+
     let perplexityRes: Response
     let usedFallback = false
+    let modelUsedLabel: string
 
-    if (!sonarProAvailable) {
-      perplexityRes = await callPerplexity(PERPLEXITY_FALLBACK_MODEL, systemPrompt, query, domainFilter, history)
-      usedFallback = true
-    } else {
-      perplexityRes = await callPerplexity(PERPLEXITY_MODEL, systemPrompt, query, domainFilter, history)
+    if (useLocalHits) {
+      // --- HYBRID RAG PATH ---
+      // Build a grounded system prompt with inline retrieved sources.
+      // Omit search_domain_filter; model should stay within the provided chunks.
+      const systemPrompt = SYSTEM_PROMPT_RAG(jurisdiction, userType, hits)
 
-      // Structural "model not available" errors — flip the flag permanently for this worker
-      if (!perplexityRes.ok && (perplexityRes.status === 400 || perplexityRes.status === 403)) {
-        sonarProAvailable = false
-        console.warn('sonar-pro unavailable for this key; downgrading to sonar for remainder of worker lifetime')
-        perplexityRes = await callPerplexity(PERPLEXITY_FALLBACK_MODEL, systemPrompt, query, domainFilter, history)
+      if (!sonarProAvailable) {
+        perplexityRes = await callPerplexity(PERPLEXITY_FALLBACK_MODEL, systemPrompt, query, domainFilter, history, false)
         usedFallback = true
-      } else if (!perplexityRes.ok && (perplexityRes.status === 402 || perplexityRes.status === 429)) {
-        // Transient billing/rate-limit — fall back but do NOT flip the flag
-        perplexityRes = await callPerplexity(PERPLEXITY_FALLBACK_MODEL, systemPrompt, query, domainFilter, history)
-        usedFallback = true
+      } else {
+        perplexityRes = await callPerplexity(PERPLEXITY_MODEL, systemPrompt, query, domainFilter, history, false)
+
+        if (!perplexityRes.ok && (perplexityRes.status === 400 || perplexityRes.status === 403)) {
+          sonarProAvailable = false
+          console.warn('[ask-query] sonar-pro unavailable; downgrading to sonar for this worker lifetime')
+          perplexityRes = await callPerplexity(PERPLEXITY_FALLBACK_MODEL, systemPrompt, query, domainFilter, history, false)
+          usedFallback = true
+        } else if (!perplexityRes.ok && (perplexityRes.status === 402 || perplexityRes.status === 429)) {
+          perplexityRes = await callPerplexity(PERPLEXITY_FALLBACK_MODEL, systemPrompt, query, domainFilter, history, false)
+          usedFallback = true
+        }
       }
+
+      modelUsedLabel = usedFallback ? `hybrid-rag+${PERPLEXITY_FALLBACK_MODEL}` : `hybrid-rag+${PERPLEXITY_MODEL}`
+    } else {
+      // --- PURE LIVE-RETRIEVAL PATH (no local hits / embed failed / RPC error) ---
+      const systemPrompt = SYSTEM_PROMPT_LIVE(jurisdiction, userType)
+
+      if (!sonarProAvailable) {
+        perplexityRes = await callPerplexity(PERPLEXITY_FALLBACK_MODEL, systemPrompt, query, domainFilter, history, true)
+        usedFallback = true
+      } else {
+        perplexityRes = await callPerplexity(PERPLEXITY_MODEL, systemPrompt, query, domainFilter, history, true)
+
+        if (!perplexityRes.ok && (perplexityRes.status === 400 || perplexityRes.status === 403)) {
+          sonarProAvailable = false
+          console.warn('[ask-query] sonar-pro unavailable; downgrading to sonar for this worker lifetime')
+          perplexityRes = await callPerplexity(PERPLEXITY_FALLBACK_MODEL, systemPrompt, query, domainFilter, history, true)
+          usedFallback = true
+        } else if (!perplexityRes.ok && (perplexityRes.status === 402 || perplexityRes.status === 429)) {
+          perplexityRes = await callPerplexity(PERPLEXITY_FALLBACK_MODEL, systemPrompt, query, domainFilter, history, true)
+          usedFallback = true
+        }
+      }
+
+      modelUsedLabel = usedFallback ? PERPLEXITY_FALLBACK_MODEL : PERPLEXITY_MODEL
     }
 
     if (!perplexityRes.ok) {
@@ -207,17 +376,29 @@ serve(async (req) => {
 
     const perplexityData = await perplexityRes.json()
     const answerText: string = perplexityData.choices[0].message.content
-    const rawCitations: string[] = perplexityData.citations ?? []
 
     const confidence = deriveConfidence(answerText)
 
-    // Strip the CONFIDENCE line and the internal CITATIONS block from the user-facing answer
+    // Strip the CONFIDENCE line from the user-facing answer.
+    // In the RAG path the model won't emit a CITATIONS block (we told it not to), but strip it defensively.
     const cleanAnswer = answerText
       .replace(/^CONFIDENCE:\s*(HIGH|MEDIUM|ABSTAIN)\b.*$/im, '')
       .replace(/CITATIONS:\s*[\s\S]*?(?=Information, not legal advice|$)/i, '')
       .trim()
 
-    const citations = parseCitations(answerText, rawCitations)
+    // Build citations
+    let citations: Array<{ source: string; url: string; statute_ref: string }>
+    if (useLocalHits) {
+      // Derive citations from the local chunk hits; ignore any model-emitted citations
+      citations = hits.slice(0, 5).map(h => ({
+        source: h.statute_display,
+        url: h.deep_link || h.citation_url || '',
+        statute_ref: `Section ${h.section_number}${h.clause_id ? ' ' + h.clause_id : ''}`,
+      }))
+    } else {
+      const rawCitations: string[] = perplexityData.citations ?? []
+      citations = parseCitations(answerText, rawCitations)
+    }
 
     // Translate if needed
     let finalAnswer = cleanAnswer
@@ -250,7 +431,7 @@ serve(async (req) => {
       citations,
       confidence,
       jurisdiction,
-      model_used: usedFallback ? PERPLEXITY_FALLBACK_MODEL : (perplexityData.model ?? PERPLEXITY_MODEL),
+      model_used: modelUsedLabel,
       disclaimer: 'Information, not legal advice. Verify against the official record before filing.'
     }), { headers: { 'Content-Type': 'application/json', ...corsHeaders(req) } })
 
