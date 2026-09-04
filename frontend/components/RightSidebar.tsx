@@ -131,6 +131,19 @@ export default function RightSidebar({ userType, jurisdiction, classification }:
         >
           Profile &amp; settings
         </Link>
+        <button
+          type="button"
+          onClick={signOut}
+          style={{
+            display: 'block', width: '100%', padding: '9px 12px', borderRadius: 8,
+            border: '1px solid rgba(226,54,54,0.35)', background: 'transparent',
+            color: '#f2a3a3', fontSize: 12, cursor: 'pointer',
+            fontFamily: 'inherit', textAlign: 'left',
+            transition: 'background 150ms, border-color 150ms',
+          }}
+        >
+          Sign out
+        </button>
       </div>
     </aside>
   )
