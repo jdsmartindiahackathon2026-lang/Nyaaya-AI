@@ -82,3 +82,37 @@ At embed time only, a header is prepended to preserve parent context:
 `bge-small-en-v1.5` expects **queries** to be prefixed `"query: "` but not
 passages. The runtime retrieval Edge Function must apply this — the ingest
 side already treats every chunk as a passage.
+
+## Load stage
+
+`load.py` reads the `*.embedded.jsonl` files produced by the embed stage and
+upserts every chunk to the `public.statute_chunks` pgvector table in Supabase.
+
+### Prerequisites
+
+- pgvector migration applied to the remote project (done Session 10).
+- `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` env vars set. Get the
+  service role key from **Supabase dashboard → Project Settings → API →
+  service_role**. Never commit it.
+
+```bash
+export SUPABASE_URL=https://<project-ref>.supabase.co
+export SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
+```
+
+### Command
+
+```bash
+python ingest/load.py                          # upload all acts
+python ingest/load.py --only patents-act-1970  # one act only
+python ingest/load.py --dry-run                # validate without writing
+python ingest/load.py --chunks-dir /other/dir  # custom input directory
+```
+
+### Notes
+
+- **Idempotent** — upserts on the `id` primary key (`<statute_id>::<clause_id>`).
+  Re-running never duplicates rows.
+- Processes `BATCH_SIZE=200` rows per request to stay within Supabase limits.
+- Run this locally (on Joyjit's machine) with the service role key from the
+  Supabase dashboard. The key must never be committed or deployed.
