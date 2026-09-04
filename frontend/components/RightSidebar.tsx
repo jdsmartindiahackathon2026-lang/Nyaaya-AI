@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { supabase } from '../lib/supabase'
 
 const NINE_REALMS = [
@@ -118,28 +119,18 @@ export default function RightSidebar({ userType, jurisdiction, classification }:
         background: 'var(--bg-card)', animationDelay: '240ms',
       }}>
         <div className="label-xs">Account</div>
-        <button
-          onClick={signOut}
+        <Link
+          href="/app/profile"
           style={{
-            width: '100%', padding: '9px 12px', borderRadius: 8,
+            display: 'block', width: '100%', padding: '9px 12px', borderRadius: 8,
             border: '1px solid var(--border)', background: 'transparent',
             color: 'var(--text-dim)', fontSize: 12, cursor: 'pointer',
-            fontFamily: 'inherit', textAlign: 'left',
+            fontFamily: 'inherit', textAlign: 'left', textDecoration: 'none',
             transition: 'background 150ms, color 150ms, border-color 150ms',
           }}
-          onMouseEnter={e => {
-            e.currentTarget.style.background = 'rgba(226,131,106,0.08)'
-            e.currentTarget.style.color = '#e2836a'
-            e.currentTarget.style.borderColor = 'rgba(226,131,106,0.35)'
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.background = 'transparent'
-            e.currentTarget.style.color = 'var(--text-dim)'
-            e.currentTarget.style.borderColor = 'var(--border)'
-          }}
         >
-          Sign out
-        </button>
+          Profile &amp; settings
+        </Link>
       </div>
     </aside>
   )

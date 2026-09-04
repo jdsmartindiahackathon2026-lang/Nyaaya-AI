@@ -58,6 +58,9 @@ a:hover { color: var(--accent-hi); }
 @keyframes tooltipText { from { opacity: 0; transform: translateY(10px) } to { opacity: 1; transform: translateY(0) } }
 @keyframes riseIn      { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
 @keyframes sap         { 0% { stroke-dashoffset: 40 } 100% { stroke-dashoffset: 0 } }
+@keyframes fireflyDrift { 0% { transform: translate(0,0) scale(0.8); opacity: 0; } 15% { opacity: 1; } 50% { transform: translate(var(--fx), var(--fy)) scale(1.2); } 85% { opacity: 1; } 100% { transform: translate(var(--fx2), var(--fy2)) scale(0.8); opacity: 0; } }
+@keyframes flicker      { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@keyframes shake        { 10%,90% { transform: translateX(-1px); } 20%,80% { transform: translateX(2px); } 30%,50%,70% { transform: translateX(-4px); } 40%,60% { transform: translateX(4px); } }
 @keyframes iconFlicker { 50% { opacity: .35 } }
 @keyframes letterShimmer { 50% { text-shadow: 0 0 3px rgba(255,255,255,.5); color:#fff } }
 @keyframes unfurlLeft  { from { opacity:0; transform:translateX(-16px) } to { opacity:1; transform:none } }
