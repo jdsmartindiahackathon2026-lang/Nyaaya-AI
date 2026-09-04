@@ -1,12 +1,12 @@
 # Context — Nyaaya AI / IP-SAKTI
 
-_Last updated: Session 8 — 2026-09-04_
+_Last updated: Session 9 — 2026-09-04_
 
 ---
 
 ## Current state
 
-ABS Compliance Wizard shipped in Session 8. PR [#9](https://github.com/jdsmartindiahackathon2026-lang/Nyaaya-AI/pull/9) merged to `main` (merge commit `c9392fd`). New `public.abs_diagnoses` table applied to remote with user-scoped RLS; local browser test passed after clearing stale `.next` cache. `/app/abs` is now an interactive branching wizard with live obligation counter, personalised memo, jsPDF download, and deep-links into Ask (`?q=`) + Escalate (`?summary=`). Everything else from Session 7 still holds — PRs #7/#8 merged, all 6 Edge Functions v2 ACTIVE, migrations applied, Google OAuth working. Ask/TKDL/Classify-citations still 503 until Joyjit sets `PERPLEXITY_API_KEY`. Next session: Perplexity key → Vercel deploy → E2E smoke.
+Hybrid RAG **ingest layer** shipped in Session 9. PR [#10](https://github.com/jdsmartindiahackathon2026-lang/Nyaaya-AI/pull/10) merged to `main`. Offline pipeline scrapes IndiaCode + arbitrary PDFs, chunks per-clause with hierarchical IDs, embeds locally with `bge-small-en-v1.5`. **Corpus: 19 sources / 7,438 chunks / 2.13M chars of Indian legal text.** Retrieval quality verified — flagship queries hit exact clauses (BD Rules §14 at 0.836 for ABS, TRIPS §39, Phytopharma §2 definition). **No runtime code touched yet** — this PR is offline tooling + data only. Next: pgvector migration + `load.py` + hybrid retrieval Edge Function (the wiring PR). Everything else from Session 8 still holds — ABS Wizard live, all 6 Edge Functions v2 ACTIVE, Google OAuth working. Ask/TKDL/Classify-citations still 503 until Joyjit sets `PERPLEXITY_API_KEY`.
 
 | Layer | Status |
 |---|---|
@@ -128,6 +128,25 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon key from Supabase dashboard>
 - `rate_limits` — per-user-per-minute counters (Session 7).
 
 All tables have RLS enabled.
+
+**Pending (Session 10):**
+- `statute_chunks` table with `vector(384)` column, pgvector extension, similarity-search RPC, RLS. Loaded from `scraped/chunks/*.embedded.jsonl` by `ingest/load.py`.
+
+---
+
+## Hybrid RAG (offline ingest, shipped Session 9)
+
+- **Pipeline:** `ingest/scrape.py` (IndiaCode DSpace) or `ingest/scrape_pdf.py` (arbitrary PDF) → `ingest/chunk.py` or `chunk_pdf.py` → `ingest/embed.py`. Outputs `scraped/chunks/<id>.jsonl` (committed) + `<id>.embedded.jsonl` (gitignored, ~7MB per act).
+- **Corpus:** 19 sources, 7,438 chunks. See `progress.md` Session 9 for the full list.
+- **Embedding model:** `BAAI/bge-small-en-v1.5` — 384-dim, MIT, MTEB-top in its size class. Runs on CPU in ~4 min for the whole corpus. Query prefix `"query: "` required at retrieval time; passages get none.
+- **Chunk shape** (identical for both ingest paths):
+  ```
+  { statute_id, statute_display, section_number, section_title, clause_id,
+    text, page_number, citation_url, deep_link, [embedding] }
+  ```
+- **Deep links:** `<pdf_url>#page=N` — W3C-standard PDF viewer fragment. Every browser opens the source PDF at the exact page.
+- **Not yet in corpus:** FSSAI Ayurveda-Aahara Regs 2022 (URL not confirmed), BD Rules 2025 amendment (uuid `0ea74615-6957-4ef2-aea6-765fbc3f6750` — should add for freshness).
+- **Local dev env note:** `sentence-transformers` on Windows Python 3.13 needs a short-path venv (e.g. `C:\rv`) — torch dist-info exceeds Windows' 260-char path limit inside system `site-packages`.
 
 ---
 
