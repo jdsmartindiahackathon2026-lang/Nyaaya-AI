@@ -171,6 +171,12 @@ CONFIDENCE: HIGH   — answer directly stated in a retrieved official source
 CONFIDENCE: MEDIUM — answer required interpretation of a retrieved source
 CONFIDENCE: ABSTAIN — answer not found in approved sources
 
+FORMATTING RULES:
+- Do NOT prefix your answer with a heading like "## Answer" or "# Response" — jump straight into the substantive answer.
+- Use markdown sparingly: **bold** for statute names on first mention only, ### for section headers ONLY if the answer has 3+ distinct subtopics.
+- Do not use ## (h2) headings — reserved for future page structure.
+- Never wrap the entire answer in a code block.
+
 RESPONSE FORMAT:
 Your response must follow this exact order:
 1. Answer text
@@ -238,6 +244,12 @@ CONFIDENCE: HIGH   — answer directly stated in a retrieved source
 CONFIDENCE: MEDIUM — answer required interpretation of a retrieved source
 CONFIDENCE: ABSTAIN — answer not found in retrieved sources
 
+FORMATTING RULES:
+- Do NOT prefix your answer with a heading like "## Answer" or "# Response" — jump straight into the substantive answer.
+- Use markdown sparingly: **bold** for statute names on first mention only, ### for section headers ONLY if the answer has 3+ distinct subtopics.
+- Do not use ## (h2) headings — reserved for future page structure.
+- Never wrap the entire answer in a code block.
+
 RESPONSE FORMAT:
 1. Answer text (citing retrieved sources by number)
 2. CONFIDENCE: <HIGH|MEDIUM|ABSTAIN>
@@ -284,34 +296,40 @@ async function callAnthropic(
 function parseCitations(answerText: string, rawCitations: string[]) {
   const domainMeta = approvedSources.domains as Record<string, { display: string }>
 
-  // Try to parse the structured CITATIONS block we asked the model to produce
+  // URL trust rule: only surface URLs that came from the web_search tool result.
+  // Claude sometimes fabricates plausible-looking URLs inside its own CITATIONS text
+  // block — those 404. Real search-result URLs are the only ones we trust.
+  const trustedUrlSet = new Set(rawCitations)
+
+  // Optional enrichment: Claude's CITATIONS text block can supply nicer display names
+  // and statute refs; we pair them with a trusted URL by hostname match.
+  const claudeMeta = new Map<string, { source: string; statute_ref: string }>()
   const citationsBlockMatch = answerText.match(/CITATIONS:\s*([\s\S]*?)(?:Information, not legal advice|$)/i)
   if (citationsBlockMatch) {
     const lines = citationsBlockMatch[1].trim().split('\n').filter(l => l.trim())
-    const parsed = lines.map(line => {
+    for (const line of lines) {
       const parts = line.split('|').map(p => p.trim())
       const url = parts[1] ?? ''
-      let hostname = ''
-      try { hostname = new URL(url).hostname.replace('www.', '') } catch (_) { hostname = url }
-      return {
-        source: parts[0] || domainMeta[hostname]?.display || hostname,
-        url,
-        statute_ref: parts[2] || ''
-      }
-    }).filter(c => c.url)
-    if (parsed.length > 0) return parsed
+      if (!url) continue
+      try {
+        const host = new URL(url).hostname.replace('www.', '')
+        claudeMeta.set(host, { source: parts[0] || '', statute_ref: parts[2] || '' })
+      } catch (_) { /* skip invalid URL */ }
+    }
   }
 
-  // Fallback: use raw citation URLs, enrich with domain metadata
-  return rawCitations.map((url: string) => {
-    let hostname = ''
-    try { hostname = new URL(url).hostname.replace('www.', '') } catch (_) { hostname = url }
-    return {
-      source: domainMeta[hostname]?.display || hostname,
-      url,
-      statute_ref: extractStatuteRef(answerText, hostname)
-    }
-  })
+  return rawCitations
+    .filter((url) => trustedUrlSet.has(url))
+    .map((url) => {
+      let hostname = ''
+      try { hostname = new URL(url).hostname.replace('www.', '') } catch (_) { hostname = url }
+      const meta = claudeMeta.get(hostname)
+      return {
+        source: meta?.source || domainMeta[hostname]?.display || hostname,
+        url,
+        statute_ref: meta?.statute_ref || extractStatuteRef(answerText, hostname),
+      }
+    })
 }
 
 function extractStatuteRef(text: string, _domain: string): string {
