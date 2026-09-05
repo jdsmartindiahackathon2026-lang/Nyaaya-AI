@@ -15,6 +15,8 @@ export default function LandingPage() {
   const [mx, setMx] = useState(0)
   const [my, setMy] = useState(0)
   const [revealed, setRevealed] = useState<Record<string, boolean>>({})
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
 
   const elsRef = useRef<Record<string, HTMLElement | null>>({})
 
@@ -108,7 +110,7 @@ export default function LandingPage() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+        html { scroll-behavior: smooth; }
         html, body { margin: 0; padding: 0; background: #070d0b; }
         a { color: #5ac9a8; text-decoration: none; }
         a:hover { color: #86e0bd; }
@@ -157,7 +159,7 @@ export default function LandingPage() {
 
           {/* Leaf particles */}
           <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 2, transform: `translate(${mx * -20}px,${my * -20}px)`, transition: 'transform 400ms ease-out' }}>
-            {leaves.map((leaf, i) => (
+            {mounted && leaves.map((leaf, i) => (
               <svg key={i} width={leaf.size} height={leaf.size} viewBox="0 0 24 24" style={{ position: 'absolute', left: leaf.left, top: -40, opacity: parseFloat(leaf.opacity), animation: `leafDrift ${leaf.duration} linear ${leaf.delay} infinite`, ['--dx' as string]: leaf.dx, ['--rot' as string]: leaf.rot }}>
                 <path d="M12 2C7 6 3 10 3 15a9 9 0 0 0 9 7 9 9 0 0 0 9-7c0-5-4-9-9-13z" fill="#4fd6b5" />
               </svg>
@@ -165,7 +167,7 @@ export default function LandingPage() {
           </div>
           {/* Firefly particles */}
           <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 2, transform: `translate(${mx * -32}px,${my * -32}px)`, transition: 'transform 400ms ease-out' }}>
-            {fireflies.map((fly, i) => (
+            {mounted && fireflies.map((fly, i) => (
               <div key={i} style={{ position: 'absolute', left: fly.left, top: fly.top, width: fly.size, height: fly.size, borderRadius: '50%', background: '#a6f5db', boxShadow: '0 0 8px 2px rgba(166,245,219,0.85)', animation: `fireflyDrift ${fly.duration} ease-in-out ${fly.delay} infinite, flicker ${fly.flickerDuration} ease-in-out ${fly.delay} infinite`, ['--fx' as string]: fly.fx, ['--fy' as string]: fly.fy, ['--fx2' as string]: fly.fx2, ['--fy2' as string]: fly.fy2 }} />
             ))}
           </div>
@@ -331,11 +333,12 @@ export default function LandingPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13 }}>
                 <a href="#product" style={{ color: '#9fc2b0' }}>Product</a>
                 <a href="#corpus" style={{ color: '#9fc2b0' }}>Corpus</a>
+                <a href="#demo" style={{ color: '#9fc2b0' }}>Demo</a>
                 <a href="/login" style={{ color: '#9fc2b0' }}>Sign in</a>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13 }}>
-                <a href="#" style={{ color: '#9fc2b0' }}>GitHub (private)</a>
-                <a href="mailto:hello@nyaaya.ai" style={{ color: '#9fc2b0' }}>Contact</a>
+                <a href="https://github.com/jdsmartindiahackathon2026-lang/Nyaaya-AI" target="_blank" rel="noopener noreferrer" style={{ color: '#9fc2b0' }}>GitHub (private)</a>
+                <a href="https://github.com/jdsmartindiahackathon2026-lang/Nyaaya-AI/issues" target="_blank" rel="noopener noreferrer" style={{ color: '#9fc2b0' }}>Contact</a>
               </div>
             </div>
           </div>
