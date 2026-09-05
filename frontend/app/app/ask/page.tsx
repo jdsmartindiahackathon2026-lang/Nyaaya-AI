@@ -222,7 +222,7 @@ function AskPage() {
       if (fnError || !data?.title) return
       const newTitle = String(data.title).trim()
       if (!newTitle) return
-      await supabase.from('conversations').update({ title: newTitle }).eq('id', convId)
+      await supabase.from('conversations').update({ title: newTitle }).eq('id', convId).eq('user_id', userRowId ?? '')
       setConversations(prev => prev.map(c => c.id === convId ? { ...c, title: newTitle } : c))
     } catch (_) { /* non-fatal — placeholder title stays */ }
   }
@@ -234,7 +234,7 @@ function AskPage() {
     const trimmed = next.trim()
     if (!trimmed || trimmed === current?.title) return
     const clipped = trimmed.length > 80 ? trimmed.slice(0, 80).trimEnd() + '…' : trimmed
-    const { error: updErr } = await supabase.from('conversations').update({ title: clipped }).eq('id', convId)
+    const { error: updErr } = await supabase.from('conversations').update({ title: clipped }).eq('id', convId).eq('user_id', userRowId ?? '')
     if (updErr) { setError('Could not rename that conversation.'); return }
     setConversations(prev => prev.map(c => c.id === convId ? { ...c, title: clipped } : c))
   }
@@ -247,7 +247,7 @@ function AskPage() {
     const convId = pendingDeleteId
     if (!convId) return
     setPendingDeleteId(null)
-    const { error: delErr } = await supabase.from('conversations').delete().eq('id', convId)
+    const { error: delErr } = await supabase.from('conversations').delete().eq('id', convId).eq('user_id', userRowId ?? '')
     if (delErr) { setError('Could not delete that conversation.'); return }
     setConversations(prev => prev.filter(c => c.id !== convId))
     if (activeConvId === convId) {
