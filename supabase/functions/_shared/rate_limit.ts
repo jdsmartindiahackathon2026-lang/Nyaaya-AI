@@ -10,6 +10,9 @@ export type FunctionName =
   | 'translate'
   | 'escalate'
   | 'embed-query'
+  | 'delete-account'
+  | 'export-user-data'
+  | 'title-conversation'
 
 export const RATE_LIMITS: Record<FunctionName, number> = {
   'ask-query': 20,
@@ -19,6 +22,9 @@ export const RATE_LIMITS: Record<FunctionName, number> = {
   'translate': 60,
   'escalate': 5,
   'embed-query': 60,
+  'delete-account': 3,
+  'export-user-data': 3,
+  'title-conversation': 30,
 }
 
 interface RateLimitUser { id: string; is_service_role?: boolean }

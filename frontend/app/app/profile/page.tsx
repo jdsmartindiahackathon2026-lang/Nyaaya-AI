@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
+import { MAX_TEXT_FIELD_LEN, isValidEmail } from '../../../lib/validators'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -178,15 +179,15 @@ function SelectRow({ label, value, onChange, options, disabled }: {
   )
 }
 
-function TextRow({ label, value, onChange, placeholder }: {
-  label: string; value: string; onChange: (v: string) => void; placeholder?: string
+function TextRow({ label, value, onChange, placeholder, maxLength = MAX_TEXT_FIELD_LEN }: {
+  label: string; value: string; onChange: (v: string) => void; placeholder?: string; maxLength?: number
 }) {
   return (
     <RowDivider>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 0' }}>
         <label style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#7fb0a0' }}>{label}</label>
         <input
-          type="text" value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+          type="text" value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} maxLength={maxLength}
           style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid rgba(90,201,168,0.25)', background: 'rgba(6,14,12,0.8)', color: '#f2f6f3', fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13.5 }}
         />
       </div>
@@ -415,6 +416,7 @@ function DangerZone() {
         localStorage.removeItem('nyaaya_userType')
         localStorage.removeItem('nyaaya_language')
         localStorage.removeItem('nyaaya_jurisdiction')
+        localStorage.removeItem('nyaaya_ask_rail_open')
       } catch {}
       router.replace('/login')
     } catch (err) {
@@ -469,6 +471,10 @@ function ChangeEmailWidget() {
 
   async function handleConfirm() {
     if (!newEmail.trim()) return
+    if (!isValidEmail(newEmail)) {
+      setMsg('Please enter a valid email address.')
+      return
+    }
     try {
       const { error } = await supabase.auth.updateUser({ email: newEmail.trim() })
       if (error) throw error
@@ -725,7 +731,7 @@ function TabContent(props: TabContentProps) {
           <ButtonRow label="Sign out" desc="End your session on this device" buttonLabel="Sign out"
             variant="danger" onClick={async () => {
               await supabase.auth.signOut()
-              try { ['nyaaya_onboarded', 'nyaaya_userType', 'nyaaya_language', 'nyaaya_jurisdiction'].forEach(k => localStorage.removeItem(k)) } catch {}
+              try { ['nyaaya_onboarded', 'nyaaya_userType', 'nyaaya_language', 'nyaaya_jurisdiction', 'nyaaya_ask_rail_open'].forEach(k => localStorage.removeItem(k)) } catch {}
               props.router.replace('/login')
             }} />
           <ButtonRow label="Password" desc="Reset the password used to sign in" buttonLabel="Forgot password" onClick={async () => {
@@ -998,6 +1004,13 @@ export default function ProfilePage() {
     setSaving(true)
     setSaveMsg('')
     try {
+      // H1: re-verify session so we use the authoritative auth id, not cached state
+      const { data: { user: authUser }, error: authErr } = await supabase.auth.getUser()
+      if (authErr || !authUser) {
+        setSaveMsg('Session expired — please sign in again.')
+        setSaving(false)
+        return
+      }
       const prefs: Preferences = {
         answer_style: answerStyle as Preferences['answer_style'],
         citation_depth: Number(citationDepth) as 3 | 10,
@@ -1041,7 +1054,7 @@ export default function ProfilePage() {
           context_answers: ctx,
           last_active: new Date().toISOString(),
         })
-        .eq('auth_id', user.auth_id)
+        .eq('auth_id', authUser.id)
       if (error) throw error
       setSaveMsg('Saved')
       setTimeout(() => setSaveMsg(''), 2000)

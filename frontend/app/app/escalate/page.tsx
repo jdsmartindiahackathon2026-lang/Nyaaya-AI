@@ -2,6 +2,7 @@
 import { Suspense, useState, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
+import { MAX_NAME_LEN, MAX_EMAIL_LEN, MAX_DESCRIPTION_LEN } from '../../../lib/validators'
 
 const ISSUE_TYPES = [
   'Patent filing assistance',
@@ -107,12 +108,12 @@ function EscalatePage() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <label className="label-xs">Name</label>
-            <input value={name} onChange={e => setName(e.target.value)} required placeholder="Your name"
+            <input value={name} onChange={e => setName(e.target.value)} required placeholder="Your name" maxLength={MAX_NAME_LEN}
               style={{ background: 'var(--bg-input)', border: '1px solid var(--border-hi)', borderRadius: 8, padding: '10px 12px', color: 'var(--text)', fontSize: 14, outline: 'none', fontFamily: "'IBM Plex Sans', sans-serif" }} />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <label className="label-xs">Email</label>
-            <input value={email} onChange={e => setEmail(e.target.value)} required type="email" placeholder="your@email.com"
+            <input value={email} onChange={e => setEmail(e.target.value)} required type="email" placeholder="your@email.com" maxLength={MAX_EMAIL_LEN}
               style={{ background: 'var(--bg-input)', border: '1px solid var(--border-hi)', borderRadius: 8, padding: '10px 12px', color: 'var(--text)', fontSize: 14, outline: 'none', fontFamily: "'IBM Plex Sans', sans-serif" }} />
           </div>
         </div>
@@ -149,7 +150,7 @@ function EscalatePage() {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <label className="label-xs">Description</label>
-          <textarea value={description} onChange={e => setDescription(e.target.value)} required rows={5}
+          <textarea value={description} onChange={e => setDescription(e.target.value)} required rows={5} maxLength={MAX_DESCRIPTION_LEN}
             placeholder="Describe your situation in detail — product name, current stage, the specific question or problem you need help with…"
             style={{ background: 'var(--bg-input)', border: '1px solid var(--border-hi)', borderRadius: 8, padding: '10px 12px', color: 'var(--text)', fontSize: 14, outline: 'none', resize: 'vertical', fontFamily: "'IBM Plex Sans', sans-serif" }} />
         </div>

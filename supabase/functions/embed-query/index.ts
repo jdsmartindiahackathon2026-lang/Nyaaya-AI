@@ -19,13 +19,15 @@ const ALLOWED_ORIGINS = (Deno.env.get('ALLOWED_ORIGINS') ?? 'http://localhost:30
 
 function corsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get('Origin') ?? ''
-  const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0] ?? ''
-  return {
-    'Access-Control-Allow-Origin': allowed,
+  const headers: Record<string, string> = {
     'Access-Control-Allow-Headers': 'authorization, content-type, x-client-info, apikey',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Vary': 'Origin',
   }
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    headers['Access-Control-Allow-Origin'] = origin
+  }
+  return headers
 }
 
 function handleOptions(req: Request): Response {
@@ -125,10 +127,9 @@ serve(async (req) => {
       { headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } },
     )
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
     console.error('[embed-query] error:', err)
     return new Response(
-      JSON.stringify({ error: true, code: 'EMBED_FAILED', message }),
+      JSON.stringify({ error: true, code: 'EMBED_FAILED', message: 'An internal error occurred. Please try again later.' }),
       { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(req) } },
     )
   }

@@ -8,13 +8,15 @@ const ALLOWED_ORIGINS = (Deno.env.get('ALLOWED_ORIGINS') ?? 'http://localhost:30
 
 function corsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get('Origin') ?? ''
-  const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0] ?? ''
-  return {
-    'Access-Control-Allow-Origin': allowed,
+  const headers: Record<string, string> = {
     'Access-Control-Allow-Headers': 'authorization, content-type, x-client-info, apikey',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Vary': 'Origin',
   }
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    headers['Access-Control-Allow-Origin'] = origin
+  }
+  return headers
 }
 
 function handleOptions(req: Request): Response {
@@ -48,6 +50,8 @@ async function requireUser(req: Request) {
   }
 }
 
+const RATE_LIMIT_DELETE = 3
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return handleOptions(req)
 
@@ -56,6 +60,22 @@ serve(async (req: Request) => {
 
   const { user } = result
   const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+  // Rate limit: 3/min — rare destructive action
+  const { data: rlData, error: rlError } = await adminClient.rpc('check_rate_limit', {
+    p_user_id: user.id,
+    p_function: 'delete-account',
+    p_limit: RATE_LIMIT_DELETE,
+  })
+  if (!rlError) {
+    const row = Array.isArray(rlData) ? (rlData[0] as { allowed?: boolean; reset_at?: string } | undefined) : (rlData as { allowed?: boolean; reset_at?: string } | null)
+    if (row && row.allowed === false) {
+      return new Response(
+        JSON.stringify({ error: true, code: 'RATE_LIMITED', message: `Too many requests. Limit: ${RATE_LIMIT_DELETE}/minute. Try again in a moment.`, retryable: true, reset_at: row.reset_at }),
+        { status: 429, headers: { 'Content-Type': 'application/json', 'Retry-After': '60', ...corsHeaders(req) } },
+      )
+    }
+  }
 
   try {
     // Delete profile row first (child rows cascade via existing FKs)
@@ -70,8 +90,8 @@ serve(async (req: Request) => {
       headers: { 'Content-Type': 'application/json', ...corsHeaders(req) },
     })
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err)
-    return new Response(JSON.stringify({ ok: false, error: message }), {
+    console.error('[delete-account] error:', err)
+    return new Response(JSON.stringify({ ok: false, error: 'An internal error occurred. Please try again later.' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json', ...corsHeaders(req) },
     })
