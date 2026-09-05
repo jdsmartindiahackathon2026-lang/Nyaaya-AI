@@ -20,7 +20,7 @@ export default function LandingPage() {
 
   const elsRef = useRef<Record<string, HTMLElement | null>>({})
 
-  const leaves = useMemo<Leaf[]>(() => Array.from({ length: 10 }, () => ({
+  const leaves = useMemo<Leaf[]>(() => Array.from({ length: 45 }, () => ({
     size: 12 + Math.round(Math.random() * 10),
     left: Math.round(Math.random() * 100) + '%',
     opacity: (0.18 + Math.random() * 0.25).toFixed(2),
@@ -30,7 +30,7 @@ export default function LandingPage() {
     rot: Math.round(180 + Math.random() * 360) + 'deg',
   })), [])
 
-  const fireflies = useMemo<Firefly[]>(() => Array.from({ length: 12 }, () => ({
+  const fireflies = useMemo<Firefly[]>(() => Array.from({ length: 55 }, () => ({
     left: Math.round(Math.random() * 100) + '%',
     top: Math.round(Math.random() * 100) + '%',
     size: (3 + Math.random() * 3).toFixed(1) + 'px',
