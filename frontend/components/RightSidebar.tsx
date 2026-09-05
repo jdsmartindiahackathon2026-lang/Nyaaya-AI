@@ -4,16 +4,19 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '../lib/supabase'
 
+// Real chunk counts from the 7,438-clause statute_chunks corpus (Session 9).
+// Trade Secrets has no dedicated Indian act — protected under common law +
+// contract; kept in the map at 0 so the realm stays visible.
 const NINE_REALMS = [
-  { label: 'Patents',                   count: '2,140' },
-  { label: 'Geographical Indications',  count: '410'   },
-  { label: 'Trademarks',                count: '860'   },
-  { label: 'Designs',                   count: '190'   },
-  { label: 'Copyright',                 count: '150'   },
-  { label: 'Trade Secrets',             count: '80'    },
-  { label: 'Plant-variety Rights',      count: '120'   },
-  { label: 'Access & Benefit-Sharing',  count: '260'   },
-  { label: 'Drug-regulatory',           count: '540'   },
+  { label: 'Patents',                   count: '764'   },
+  { label: 'Geographical Indications',  count: '359'   },
+  { label: 'Trademarks',                count: '713'   },
+  { label: 'Designs',                   count: '212'   },
+  { label: 'Copyright',                 count: '559'   },
+  { label: 'Trade Secrets',             count: '—'     },
+  { label: 'Plant-variety Rights',      count: '461'   },
+  { label: 'Access & Benefit-Sharing',  count: '368'   },
+  { label: 'Drug-regulatory',           count: '1,504' },
 ]
 
 interface Props {
