@@ -312,39 +312,57 @@ serve(async (req) => {
 
     const VALID_STATUSES = new Set(['documented', 'partial', 'not_found'])
 
-    let results: object[]
-    try {
-      const cleaned = answerText.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-      const parsed = JSON.parse(cleaned)
-      if (Array.isArray(parsed)) {
-        results = parsed
-          .filter((r: Record<string, unknown>) => r && typeof r.name === 'string' && typeof r.status === 'string')
-          .map((r: Record<string, unknown>) => {
-            const claudeSource = typeof r.source === 'string' ? r.source : ''
-            const source = trustedUrls.has(claudeSource) ? claudeSource : fallbackSource
-            return {
-              name: r.name,
-              status: VALID_STATUSES.has(r.status as string) ? r.status : 'documented',
-              tkdlRef: (r.tkdlRef === '' || r.tkdlRef === undefined) ? null : r.tkdlRef,
-              description: r.description ?? '',
-              source,
-            }
-          })
-      } else {
-        throw new Error('Not an array')
+    // Extract the first JSON array/object from the answer, even when Claude
+    // wraps it in ```json ... ``` fences or adds prose before/after.
+    function extractJson(text: string): unknown | null {
+      const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+      const candidates = [fenced ? fenced[1] : null, text.trim()].filter(Boolean) as string[]
+      for (const c of candidates) {
+        try { return JSON.parse(c) } catch { /* try next */ }
+        const start = c.search(/[[{]/)
+        if (start === -1) continue
+        for (let end = c.length; end > start; end--) {
+          const slice = c.slice(start, end)
+          try { return JSON.parse(slice) } catch { /* keep shrinking */ }
+        }
       }
-    } catch (parseErr) {
-      console.warn('tkdl-search: JSON parse failed, falling back to single-record mode:', parseErr)
-      const status = answerText.toLowerCase().includes('not found') ? 'not_found'
-        : answerText.toLowerCase().includes('partial') ? 'partial'
-        : 'documented'
-      const tkdlRefMatch = answerText.match(/[A-Z]{2}-\d{4,5}/)
+      return null
+    }
+
+    const lowered = answerText.toLowerCase()
+    const looksNotFound = /\b(not found|no results?|no match|no records?|no relevant)\b/.test(lowered)
+
+    let results: object[]
+    const parsed = extractJson(answerText)
+    if (Array.isArray(parsed)) {
+      results = parsed
+        .filter((r: Record<string, unknown>) => r && typeof r.name === 'string' && typeof r.status === 'string')
+        .map((r: Record<string, unknown>) => {
+          const claudeSource = typeof r.source === 'string' ? r.source : ''
+          const source = trustedUrls.has(claudeSource) ? claudeSource : fallbackSource
+          return {
+            name: r.name,
+            status: VALID_STATUSES.has(r.status as string) ? r.status : 'documented',
+            tkdlRef: (r.tkdlRef === '' || r.tkdlRef === undefined) ? null : r.tkdlRef,
+            description: r.description ?? '',
+            source,
+          }
+        })
+    } else {
+      results = []
+    }
+
+    // If Claude returned no records but the answer text explains why, expose
+    // that as a single not_found card instead of a bare empty state — carry
+    // the prose (with any JSON fences stripped) as the description.
+    if (results.length === 0 && answerText.trim() && looksNotFound) {
+      const prose = answerText.replace(/```(?:json)?[\s\S]*?```/gi, '').trim()
       results = [{
         name: query,
-        status,
-        description: answerText,
-        tkdlRef: tkdlRefMatch ? tkdlRefMatch[0] : null,
-        source: fallbackSource
+        status: 'not_found',
+        tkdlRef: null,
+        description: prose || 'No matching records surfaced in TKDL or the Indian patent corpus for this query.',
+        source: fallbackSource,
       }]
     }
 

@@ -108,7 +108,6 @@ export default function LandingPage() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
         html, body { margin: 0; padding: 0; background: #070d0b; }
         a { color: #5ac9a8; text-decoration: none; }
         a:hover { color: #86e0bd; }

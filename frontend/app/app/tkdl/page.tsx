@@ -2,18 +2,24 @@
 import { useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 
-interface TKDLResult {
+interface TKDLRecord {
+  name: string
   status: 'documented' | 'partial' | 'not_found'
-  summary: string
-  references: { title: string; url: string; statute_ref: string }[]
-  confidence: string
-  recommendation: string
+  tkdlRef: string | null
+  description: string
+  source: string
+}
+interface TKDLResponse {
+  results: TKDLRecord[]
+  legal_context?: string
+  disclaimer?: string
+  model_used?: string
 }
 
 export default function TKDLPage() {
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<TKDLResult | null>(null)
+  const [result, setResult] = useState<TKDLResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   async function search() {
@@ -85,44 +91,66 @@ export default function TKDLPage() {
 
       {result && (
         <div className="rise-in" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-          <div style={{
-            padding: '14px 18px', borderRadius: 10,
-            border: `1px solid ${STATUS_COLOR[result.status]}40`,
-            background: `${STATUS_COLOR[result.status]}0d`,
-            display: 'flex', alignItems: 'center', gap: 12,
-          }}>
-            <div style={{
-              width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
-              background: STATUS_COLOR[result.status],
-              boxShadow: `0 0 8px ${STATUS_COLOR[result.status]}80`,
-            }} />
-            <div>
-              <div className="label-xs" style={{ color: STATUS_COLOR[result.status] }}>{STATUS_LABEL[result.status]}</div>
-              <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 2 }}>{result.confidence} confidence</div>
-            </div>
-          </div>
-          <div style={{ fontSize: 14, lineHeight: 1.7, color: 'var(--text)', whiteSpace: 'pre-wrap' }}>{result.summary}</div>
-          {result.recommendation && (
+          {typeof result.legal_context === 'string' && result.legal_context.trim() && (
             <div style={{
               padding: '12px 16px', borderRadius: 8, border: '1px solid var(--border)',
-              background: 'var(--bg-card)', fontSize: 13, color: 'var(--text)', lineHeight: 1.6,
+              background: 'var(--bg-card)', fontSize: 12.5, color: 'var(--text-lo)', lineHeight: 1.6,
             }}>
-              <div className="label-xs" style={{ marginBottom: 6 }}>Recommendation</div>
-              {result.recommendation}
+              <div className="label-xs" style={{ marginBottom: 6 }}>Legal context</div>
+              {result.legal_context}
             </div>
           )}
-          {result.references?.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div className="label-xs">References</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {result.references.map((r, i) => (
-                  <a key={i} href={r.url} target="_blank" rel="noreferrer" style={{
+
+          {result.results.length === 0 ? (
+            <div style={{
+              padding: '14px 18px', borderRadius: 10,
+              border: `1px solid ${STATUS_COLOR.not_found}40`,
+              background: `${STATUS_COLOR.not_found}0d`,
+              fontSize: 13, color: 'var(--text)', lineHeight: 1.6,
+            }}>
+              No matching records surfaced from TKDL or the Indian patent corpus for this query. This does not confirm patentability — see the scope note below.
+            </div>
+          ) : (
+            result.results.map((r, i) => (
+              <div key={i} style={{
+                padding: '16px 18px', borderRadius: 10,
+                border: `1px solid ${STATUS_COLOR[r.status]}40`,
+                background: `${STATUS_COLOR[r.status]}0d`,
+                display: 'flex', flexDirection: 'column', gap: 12,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{
+                    width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+                    background: STATUS_COLOR[r.status],
+                    boxShadow: `0 0 8px ${STATUS_COLOR[r.status]}80`,
+                  }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-hi)' }}>{r.name}</div>
+                    <div className="label-xs" style={{ color: STATUS_COLOR[r.status], marginTop: 2 }}>
+                      {STATUS_LABEL[r.status]}{r.tkdlRef ? ` · ${r.tkdlRef}` : ''}
+                    </div>
+                  </div>
+                </div>
+                {r.description && (
+                  <div style={{ fontSize: 13.5, lineHeight: 1.7, color: 'var(--text)', whiteSpace: 'pre-wrap' }}>{r.description}</div>
+                )}
+                {r.source && (
+                  <a href={r.source} target="_blank" rel="noreferrer" style={{
+                    alignSelf: 'flex-start',
                     padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border)',
                     fontSize: 11.5, color: 'var(--accent)', textDecoration: 'none', background: 'var(--bg-card)',
-                  }}>{r.statute_ref || r.title}</a>
-                ))}
+                  }}>Source ↗</a>
+                )}
               </div>
-            </div>
+            ))
+          )}
+
+          {result.disclaimer && (
+            <div style={{
+              padding: '10px 14px', borderRadius: 8,
+              background: 'rgba(217,200,127,0.06)', border: '1px solid rgba(217,200,127,0.25)',
+              fontSize: 12, color: '#d9c87f', lineHeight: 1.6,
+            }}>{result.disclaimer}</div>
           )}
         </div>
       )}
