@@ -2,6 +2,7 @@
 import { Suspense, useState, useRef, useEffect, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
+import { MAX_QUERY_LEN, trimToLen } from '../../../lib/validators'
 import ReactMarkdown from 'react-markdown'
 import ConfirmDialog from '../../../components/ConfirmDialog'
 import remarkGfm from 'remark-gfm'
@@ -177,10 +178,11 @@ function AskPage() {
     if (!q) return
     const decoded = decodeURIComponent(q)
     if (!decoded.trim()) return
+    const safe = trimToLen(decoded, MAX_QUERY_LEN)
     autoSentRef.current = true
-    setQuery(decoded)
+    setQuery(safe)
     router.replace('/app/ask', { scroll: false })
-    sendQuery(decoded)
+    sendQuery(safe)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -607,6 +609,7 @@ function AskPage() {
               placeholder="Ask a question about Ayurveda IP or regulatory compliance…"
               className="chat-input"
               style={{ flex: 1 }}
+              maxLength={MAX_QUERY_LEN}
               disabled={loading}
             />
             <button
