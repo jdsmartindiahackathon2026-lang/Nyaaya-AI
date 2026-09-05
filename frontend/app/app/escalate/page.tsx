@@ -55,8 +55,10 @@ function EscalatePage() {
     if (loading) return
     setLoading(true); setError(null)
     try {
+      const querySummary = `[${issueType}] ${description}`
+      const contact = `${name} <${email}>`
       const { data, error: fnError } = await supabase.functions.invoke('escalate', {
-        body: { name, email, issueType, urgency, description }
+        body: { querySummary, contact, urgency }
       })
       if (fnError) throw fnError
       if (data?.error) throw new Error(data.message)
