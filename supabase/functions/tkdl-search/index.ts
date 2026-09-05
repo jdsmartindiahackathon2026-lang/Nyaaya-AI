@@ -294,14 +294,19 @@ serve(async (req) => {
       if (block.type === 'text') answerText += block.text
     }
 
-    // Extract first web-search result URL as fallback source
-    let fallbackSource = 'tkdl.res.in'
+    // Collect all URLs Claude actually saw via the web_search tool. These are
+    // the only URLs we let through as record.source — anything else Claude
+    // wrote is treated as a fabrication and dropped.
+    const trustedUrls = new Set<string>()
+    let fallbackSource = 'https://tkdl.res.in/'
     for (const block of (aData.content ?? [])) {
       if (block.type === 'web_search_tool_result') {
         for (const item of (block.content ?? [])) {
-          if (item.url) { fallbackSource = item.url; break }
+          if (item.url) {
+            trustedUrls.add(item.url)
+            if (fallbackSource === 'https://tkdl.res.in/') fallbackSource = item.url
+          }
         }
-        break
       }
     }
 
@@ -314,13 +319,17 @@ serve(async (req) => {
       if (Array.isArray(parsed)) {
         results = parsed
           .filter((r: Record<string, unknown>) => r && typeof r.name === 'string' && typeof r.status === 'string')
-          .map((r: Record<string, unknown>) => ({
-            name: r.name,
-            status: VALID_STATUSES.has(r.status as string) ? r.status : 'documented',
-            tkdlRef: (r.tkdlRef === '' || r.tkdlRef === undefined) ? null : r.tkdlRef,
-            description: r.description ?? '',
-            source: r.source ?? ''
-          }))
+          .map((r: Record<string, unknown>) => {
+            const claudeSource = typeof r.source === 'string' ? r.source : ''
+            const source = trustedUrls.has(claudeSource) ? claudeSource : fallbackSource
+            return {
+              name: r.name,
+              status: VALID_STATUSES.has(r.status as string) ? r.status : 'documented',
+              tkdlRef: (r.tkdlRef === '' || r.tkdlRef === undefined) ? null : r.tkdlRef,
+              description: r.description ?? '',
+              source,
+            }
+          })
       } else {
         throw new Error('Not an array')
       }

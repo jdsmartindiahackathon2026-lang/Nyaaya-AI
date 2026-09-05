@@ -502,10 +502,14 @@ serve(async (req) => {
 
     const confidence = deriveConfidence(answerText)
 
-    // Strip the CONFIDENCE line from the user-facing answer
+    // Strip ALL CONFIDENCE lines + CITATIONS blocks from the user-facing answer.
+    // Claude sometimes emits multiple CONFIDENCE lines (intro + closing); the badge
+    // uses the first one via deriveConfidence, and every occurrence needs stripping
+    // from the body text or the label appears twice.
     const cleanAnswer = answerText
-      .replace(/^CONFIDENCE:\s*(HIGH|MEDIUM|ABSTAIN)\b.*$/im, '')
-      .replace(/CITATIONS:\s*[\s\S]*?(?=Information, not legal advice|$)/i, '')
+      .replace(/^[ \t]*CONFIDENCE:\s*(HIGH|MEDIUM|ABSTAIN)\b.*$/gim, '')
+      .replace(/CITATIONS:\s*[\s\S]*?(?=Information, not legal advice|$)/gi, '')
+      .replace(/\n{3,}/g, '\n\n')
       .trim()
 
     // Build citations

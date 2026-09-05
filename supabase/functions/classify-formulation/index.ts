@@ -166,32 +166,39 @@ async function retrieveChunks(
 function parseCitations(answerText: string, rawCitations: string[]) {
   const domainMeta = approvedSources.domains as Record<string, { display: string }>
 
+  // URL trust rule: only URLs Claude actually saw via the web_search tool are
+  // returned. Anything Claude wrote in its own CITATIONS text block is used
+  // only to enrich display_name / statute_ref, paired to a trusted URL by
+  // hostname. Prevents fabricated 404-links from reaching the frontend.
+  const trustedUrlSet = new Set(rawCitations)
+
+  const claudeMeta = new Map<string, { source: string; statute_ref: string }>()
   const citationsBlockMatch = answerText.match(/CITATIONS:\s*([\s\S]*?)$/i)
   if (citationsBlockMatch) {
     const lines = citationsBlockMatch[1].trim().split('\n').filter(l => l.trim())
-    const parsed = lines.map(line => {
+    for (const line of lines) {
       const parts = line.split('|').map(p => p.trim())
       const url = parts[1] ?? ''
-      let hostname = ''
-      try { hostname = new URL(url).hostname.replace('www.', '') } catch (_) { hostname = url }
-      return {
-        source: parts[0] || domainMeta[hostname]?.display || hostname,
-        url,
-        statute_ref: parts[2] || ''
-      }
-    }).filter(c => c.url)
-    if (parsed.length > 0) return parsed
+      if (!url) continue
+      try {
+        const host = new URL(url).hostname.replace('www.', '')
+        claudeMeta.set(host, { source: parts[0] || '', statute_ref: parts[2] || '' })
+      } catch (_) { /* skip invalid URL */ }
+    }
   }
 
-  return rawCitations.map((url: string) => {
-    let hostname = ''
-    try { hostname = new URL(url).hostname.replace('www.', '') } catch (_) { hostname = url }
-    return {
-      source: domainMeta[hostname]?.display || hostname,
-      url,
-      statute_ref: ''
-    }
-  })
+  return rawCitations
+    .filter((url) => trustedUrlSet.has(url))
+    .map((url) => {
+      let hostname = ''
+      try { hostname = new URL(url).hostname.replace('www.', '') } catch (_) { hostname = url }
+      const meta = claudeMeta.get(hostname)
+      return {
+        source: meta?.source || domainMeta[hostname]?.display || hostname,
+        url,
+        statute_ref: meta?.statute_ref || '',
+      }
+    })
 }
 
 const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')!
