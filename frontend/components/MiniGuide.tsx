@@ -1,5 +1,6 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
 import { supabase } from '../lib/supabase'
 
 interface Props {
@@ -159,7 +160,37 @@ export default function MiniGuide({ currentScreen, language }: Props) {
                 borderLeft: m.role === 'guide' ? '2px solid var(--accent-dim)' : 'none',
                 paddingLeft: m.role === 'guide' ? 10 : 0,
               }}>
-                {m.text}
+                {m.role === 'guide' ? (
+                  <ReactMarkdown
+                    components={{
+                      a: ({ href, children }) => {
+                        const isInternal = href && href.startsWith('/app/')
+                        return (
+                          <a
+                            href={href}
+                            style={{ color: 'var(--accent)', textDecoration: 'underline' }}
+                            {...(isInternal ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
+                          >
+                            {children}
+                          </a>
+                        )
+                      },
+                      p: ({ children }) => (
+                        <p style={{ margin: 0 }}>{children}</p>
+                      ),
+                      ul: ({ children }) => (
+                        <ul style={{ paddingLeft: 18, margin: '4px 0' }}>{children}</ul>
+                      ),
+                      ol: ({ children }) => (
+                        <ol style={{ paddingLeft: 18, margin: '4px 0' }}>{children}</ol>
+                      ),
+                    }}
+                  >
+                    {m.text}
+                  </ReactMarkdown>
+                ) : (
+                  m.text
+                )}
               </div>
             ))}
             {loading && (
