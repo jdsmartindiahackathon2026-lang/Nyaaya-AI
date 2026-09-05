@@ -40,3 +40,19 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Claude Code local settings
+.claude/
+
+# Scratchpad — session working files, never committed
+scratchpad/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Loose design assets dropped in frontend/ root (zips, videos, orphan images
+# from design handoffs). Real assets live in frontend/public/.
+frontend/*.zip
+frontend/*.mp4
+frontend/*.png
+frontend/*.svg
