@@ -2,6 +2,78 @@
 import { Suspense, useState, useRef, useEffect, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+
+// ── Markdown prose styles ─────────────────────────────────────────────────────
+const MD_STYLES = `
+  .md-body h1 { font-size:20px; font-weight:700; font-family:'Source Serif 4',serif; color:#f2f6f3; margin:16px 0 8px; }
+  .md-body h2 { font-size:17px; font-weight:600; font-family:'Source Serif 4',serif; color:#eafaf0; margin:14px 0 6px; }
+  .md-body h3 { font-size:15px; font-weight:600; font-family:'IBM Plex Sans',sans-serif; color:#cfe4d8; margin:12px 0 4px; }
+  .md-body p  { font-size:14px; font-weight:400; font-family:'IBM Plex Sans',sans-serif; color:#e7ede9; line-height:1.6; margin:0 0 10px; }
+  .md-body strong { font-weight:600; color:#f2f6f3; }
+  .md-body em     { font-style:italic; color:#cfe4d8; }
+  .md-body ul, .md-body ol { padding-left:20px; margin:6px 0 12px; }
+  .md-body li { margin-bottom:4px; font-size:14px; font-family:'IBM Plex Sans',sans-serif; color:#e7ede9; line-height:1.6; }
+  .md-body a  { color:#7fd9ae; text-decoration:none; }
+  .md-body a:hover { text-decoration:underline; }
+  .md-body code { background:rgba(90,201,168,0.12); padding:1px 5px; border-radius:4px; font-family:'IBM Plex Mono',monospace; font-size:13px; }
+  .md-body pre  { background:rgba(90,201,168,0.08); padding:12px; border-radius:8px; overflow-x:auto; margin:0 0 12px; }
+  .md-body pre code { background:none; padding:0; }
+`
+
+// ── Fractal tree glyph (14×14) ────────────────────────────────────────────────
+function TreeGlyph() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <line x1="7" y1="13" x2="7" y2="7" stroke="#7fd9ae" strokeWidth="1.2"/>
+      <line x1="7" y1="9" x2="3" y2="5" stroke="#7fd9ae" strokeWidth="1.2"/>
+      <line x1="7" y1="9" x2="11" y2="5" stroke="#7fd9ae" strokeWidth="1.2"/>
+      <line x1="3" y1="5" x2="1"  y2="2" stroke="#7fd9ae" strokeWidth="1"/>
+      <line x1="3" y1="5" x2="5"  y2="2" stroke="#7fd9ae" strokeWidth="1"/>
+      <line x1="11" y1="5" x2="9"  y2="2" stroke="#7fd9ae" strokeWidth="1"/>
+      <line x1="11" y1="5" x2="13" y2="2" stroke="#7fd9ae" strokeWidth="1"/>
+    </svg>
+  )
+}
+
+// ── AnswerCard — styled container for assistant messages ──────────────────────
+function AnswerCard({ content, confidence }: { content: string; confidence?: 'high' | 'medium' | 'abstain' }) {
+  return (
+    <div style={{
+      padding: '20px 22px',
+      border: '1px solid rgba(90,201,168,0.28)',
+      background: 'rgba(9,17,14,0.72)',
+      backdropFilter: 'blur(10px)',
+      WebkitBackdropFilter: 'blur(10px)',
+      borderRadius: 14,
+      boxShadow: '0 12px 32px rgba(0,0,0,0.35)',
+    }}>
+      {/* Header row */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <TreeGlyph />
+          <span style={{
+            fontFamily: "'IBM Plex Mono', monospace",
+            fontSize: 11, textTransform: 'uppercase',
+            letterSpacing: '0.08em', color: '#7fd9ae',
+          }}>Nyaaya AI</span>
+        </div>
+        {confidence && (
+          <span className={`label-xs confidence-${confidence}`}>
+            {confidence.toUpperCase()} CONFIDENCE
+          </span>
+        )}
+      </div>
+      {/* Divider */}
+      <div style={{ height: 1, background: 'rgba(90,201,168,0.12)', marginBottom: 14 }} />
+      {/* Markdown body */}
+      <div className="md-body">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      </div>
+    </div>
+  )
+}
 
 const SUGGESTIONS = [
   { regime: 'Patents',     text: 'Can we patent a classical Ashwagandha formulation drawn from Charaka Samhita?' },
@@ -265,6 +337,7 @@ function AskPage() {
         .conv-row .conv-actions { opacity: 0; transition: opacity 120ms; }
         .conv-row:hover .conv-actions,
         .conv-row:focus-within .conv-actions { opacity: 1; }
+        ${MD_STYLES}
       `}</style>
       {/* ── Chat history rail ─────────────────────────────────────────────── */}
       <aside style={{
@@ -457,19 +530,7 @@ function AskPage() {
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                      {m.confidence && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span className={`label-xs confidence-${m.confidence}`}>
-                            {m.confidence.toUpperCase()} CONFIDENCE
-                          </span>
-                        </div>
-                      )}
-                      <div style={{
-                        fontSize: 14, lineHeight: 1.7, color: 'var(--text)',
-                        whiteSpace: 'pre-wrap',
-                      }}>
-                        {m.content}
-                      </div>
+                      <AnswerCard content={m.content} confidence={m.confidence} />
                       {m.citations && m.citations.length > 0 && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                           <div className="label-xs">Sources</div>
