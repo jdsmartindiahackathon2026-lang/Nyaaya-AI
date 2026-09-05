@@ -2,6 +2,85 @@
 
 ---
 
+## Session 12 — 2026-09-05 → 2026-09-06 (deploy day)
+
+### What was done
+
+**Live at [https://nyaaya-ai-six.vercel.app](https://nyaaya-ai-six.vercel.app).** Vercel connected to `main`, frontend/ root, `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` set. Supabase Auth Site URL + redirect URLs + `ALLOWED_ORIGINS` secret all wired.
+
+Perplexity dependency killed — Joyjit's card kept getting declined by Perplexity's Stripe. Anthropic accepted the same card at $5 minimum. Full stack pivoted:
+
+| PR | Title | State |
+|---|---|---|
+| **#14** | `/app/profile` — 13 tabs + backend schema + edge functions | MERGED |
+| **#15** | public marketing landing page at `/` | MERGED |
+| **#16** | Perplexity → Claude Haiku 4.5 + web_search_20250305 | MERGED |
+| **#17** | pin react-markdown to v9 so markdown actually renders | MERGED |
+| **#18** | catch main up with lost commits (CORS, AnswerCard, splash removal) | MERGED |
+| **#19** | stranded commits — CONFIDENCE strip, trustedUrl, real Nine Realms | MERGED |
+| **#20** | designed ConfirmDialog replaces browser window.confirm | OPEN |
+
+#### Backend swap details (PR #16)
+
+Rewrote `ask-query`, `classify-formulation`, `tkdl-search` to call Anthropic. Model = `claude-haiku-4-5`. Web-search fallback uses `web_search_20250305` (basic variant — the newer `_20260209` isn't on Haiku, only Opus 4.6+ / Sonnet 4.6+). Preserved: hybrid RAG local-first path, threshold logic, confidence badge parsing, structured CITATIONS block, auth, CORS, rate limits, service-role bypass. `~$0.007/query` on Haiku.
+
+**Edge Function versions at wrap:**
+- `ask-query` v10, `classify-formulation` v8, `tkdl-search` v8
+- `embed-query` v4, `delete-account` v4, `export-user-data` v4, `title-conversation` v4
+- `escalate`, `mini-guide`, `translate` — old CLI versions, still on `_shared/cors.ts` imports (need CLI redeploy)
+
+#### Frontend polish
+
+- Designed **AnswerCard** wraps every assistant message (bordered, Yggdrasil header row with tree glyph + `NYAAYA AI` label + confidence badge, react-markdown-rendered body)
+- `react-markdown` pinned to v9 (v10 ESM silently no-op'd in Next 14 — see [feedback_next_esm_pitfall.md](../../.claude/projects/E--Nyaaya-AI/memory/feedback_next_esm_pitfall.md))
+- Splash video removed (OpeningSplash.tsx, opening.mp4, splashDone gate — all deleted)
+- Landing page: real 19-act corpus list, hero + problem + capabilities + corpus + demo + trust + footer, one-line credit (no team member cards)
+- Right sidebar Nine Realms now shows real chunk counts (764 Patents / 1,504 Drug-regulatory / — Trade Secrets)
+- Sign out button back in RightSidebar Account card (danger-tinted)
+- Sign out ALSO available on `/app/profile` Security tab
+- Designed **ConfirmDialog** component replaces `window.confirm` — modal with backdrop blur, ESC/Enter keys, danger variant
+
+#### Critical fixes
+
+- **CORS**: Every Edge Function's `Access-Control-Allow-Headers` was missing `x-client-info, apikey` → Supabase JS client's preflight was 403'ing on the deployed site. Fixed and redeployed all 8 MCP-deployable functions.
+- **Citation URLs**: Claude was fabricating URLs in its CITATIONS text block that 404'd. All 3 retrieval functions now filter citations against the real `web_search_tool_result` URL set — see [feedback_trusted_url.md](../../.claude/projects/E--Nyaaya-AI/memory/feedback_trusted_url.md).
+- **CONFIDENCE double-label**: Claude emitted two CONFIDENCE lines sometimes; regex stripped only the first. Added `/gim` global flag so all occurrences are stripped from the answer body.
+
+### Decisions made
+
+- **Kept Vercel subdomain as `nyaaya-ai-six.vercel.app`** — `nyaaya-ai` was taken. Not renamed for demo; can add a custom domain post-hackathon.
+- **Claude Haiku 4.5** over Opus/Sonnet for cost + speed at demo volume (~$0.007/query, ~700 queries per $5).
+- **Trade Secrets shows `—`** in Nine Realms sidebar — no dedicated Indian act, protected under common law + contract. Better to be honest than fabricate a number.
+- **Footer credit only, no team-member section** on landing — public marketing surface shouldn't lead with team-cards.
+- **Landing page is public for everyone** (including logged-in users). "Enter the app" CTA routes through `/login` which smart-redirects authed users.
+- **ConfirmDialog is now the standard** for destructive actions. Never use `window.confirm` again.
+
+### Delivery process notes
+
+- **PR merge race kept biting** — commits pushed after Joyjit merged the PR became stranded three times. See [feedback_pr_merge_race.md](../../.claude/projects/E--Nyaaya-AI/memory/feedback_pr_merge_race.md). Rule going forward: open the PR AFTER pushing every commit.
+- **Anthropic swap took ~90 min end-to-end** (agent-driven): read all 3 functions, rewrite, deploy via MCP, verify. Cost effectiveness of Sonnet 4.6 subagent doing systematic edits > coordinator doing it inline.
+- **MCP deploy bundler quirk still bites** — `_shared/*` imports won't resolve; all inlined helpers are the standard. `escalate`, `mini-guide`, `translate` still use the shared import and are stuck on their old CLI-deployed versions.
+- **Nine Realms → real counts** is a good pattern to remember: any hardcoded design-mockup number should be replaced with a real query result before demo day.
+
+### Pending (carry to Session 13)
+
+| # | Task | Owner |
+|---|---|---|
+| 1 | Merge PR #20 (ConfirmDialog) | Joyjit |
+| 2 | **Session 13 = Groq Mini Guide bot deep dive** — prompt tuning, screen-awareness, multi-turn context, UX polish, possible migration to Claude Haiku | Agent |
+| 3 | CLI-redeploy `escalate` / `mini-guide` / `translate` with the CORS fix (inline `_shared/cors.ts` first) | Agent |
+| 4 | Anthropic key expires 2026-10-05 — rotate before then | Joyjit |
+| 5 | Full i18n for UI chrome (only AI answer text is translated today) | Deferred |
+| 6 | Custom domain in Vercel + repeat Supabase URL config for it | Joyjit |
+
+### Known gaps / risks
+
+- 30-day Anthropic key expiry — do not forget
+- `rate_limits` table still deny-all RLS → profile page rate-limit progress bars show `0/N` (documented workaround; would need SECURITY DEFINER RPC to expose user-visible counts)
+- `PERPLEXITY_API_KEY` secret can now be deleted from Supabase (no code reads it)
+
+---
+
 ## Session 11 — 2026-09-04 (close)
 
 ### What was done
