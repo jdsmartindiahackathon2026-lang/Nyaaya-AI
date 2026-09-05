@@ -337,8 +337,8 @@ export default function LandingPage() {
                 <a href="/login" style={{ color: '#9fc2b0' }}>Sign in</a>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13 }}>
-                <a href="https://github.com/jdsmartindiahackathon2026-lang/Nyaaya-AI" target="_blank" rel="noopener noreferrer" style={{ color: '#9fc2b0' }}>GitHub (private)</a>
-                <a href="https://github.com/jdsmartindiahackathon2026-lang/Nyaaya-AI/issues" target="_blank" rel="noopener noreferrer" style={{ color: '#9fc2b0' }}>Contact</a>
+                <a href="https://github.com/jdsmartindiahackathon2026-lang/Nyaaya-AI" target="_blank" rel="noopener noreferrer" style={{ color: '#9fc2b0' }}>GitHub</a>
+                <a href="https://github.com/jdsmartindiahackathon2026-lang/Nyaaya-AI/issues/new" target="_blank" rel="noopener noreferrer" style={{ color: '#9fc2b0' }}>Contact</a>
               </div>
             </div>
           </div>
