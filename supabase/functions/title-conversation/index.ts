@@ -13,13 +13,15 @@ const ALLOWED_ORIGINS = (Deno.env.get('ALLOWED_ORIGINS') ?? 'http://localhost:30
 
 function corsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get('Origin') ?? ''
-  const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0] ?? ''
-  return {
-    'Access-Control-Allow-Origin': allowed,
+  const headers: Record<string, string> = {
     'Access-Control-Allow-Headers': 'authorization, content-type, x-client-info, apikey',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Vary': 'Origin',
   }
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    headers['Access-Control-Allow-Origin'] = origin
+  }
+  return headers
 }
 
 const SYSTEM_PROMPT = `You generate very short titles for legal chat threads about Ayurveda IP and regulatory questions.
@@ -58,9 +60,9 @@ serve(async (req) => {
     }
   }
 
-  // Share the mini-guide (Groq) budget — 30/min per user.
+  // Own rate-limit bucket: 30/min per user.
   if (!isServiceRole) {
-    const { data, error } = await supabase.rpc('check_rate_limit', { p_user_id: userId, p_function: 'mini-guide', p_limit: 30 })
+    const { data, error } = await supabase.rpc('check_rate_limit', { p_user_id: userId, p_function: 'title-conversation', p_limit: 30 })
     if (!error) {
       const row = Array.isArray(data) ? (data[0] as { allowed?: boolean; reset_at?: string } | undefined) : (data as { allowed?: boolean; reset_at?: string } | null)
       if (row && row.allowed === false) {
