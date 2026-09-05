@@ -88,7 +88,7 @@ export default function LandingPage() {
     'Indian Forest Act 1927', 'Drugs and Cosmetics Act 1940', 'Phytopharmaceutical Rules 2015',
     'Food Safety and Standards Act 2006', 'Drugs and Magic Remedies Act 1954', 'Pharmacy Act 1948',
     'Consumer Protection Act 2019', 'Legal Metrology Act 2009',
-    'Protection of Plant Varieties and Farmers’ Rights Act 2001', 'TRIPS Agreement',
+    "Protection of Plant Varieties and Farmers' Rights Act 2001", 'TRIPS Agreement',
   ]
 
   const stats = [
