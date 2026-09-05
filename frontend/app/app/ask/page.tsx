@@ -3,6 +3,7 @@ import { Suspense, useState, useRef, useEffect, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import ReactMarkdown from 'react-markdown'
+import ConfirmDialog from '../../../components/ConfirmDialog'
 import remarkGfm from 'remark-gfm'
 
 // ── Markdown prose styles ─────────────────────────────────────────────────────
@@ -125,6 +126,7 @@ function AskPage() {
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
   const [userRowId, setUserRowId] = useState<string | null>(null)
   const [conversations, setConversations] = useState<ConversationRow[]>([])
   const [activeConvId, setActiveConvId] = useState<string | null>(null)
@@ -237,10 +239,14 @@ function AskPage() {
     setConversations(prev => prev.map(c => c.id === convId ? { ...c, title: clipped } : c))
   }
 
-  async function deleteConversation(convId: string) {
-    const current = conversations.find(c => c.id === convId)
-    const label = current?.title?.trim() || NEW_CHAT_LABEL
-    if (!window.confirm(`Delete "${label}"? This cannot be undone.`)) return
+  function requestDeleteConversation(convId: string) {
+    setPendingDeleteId(convId)
+  }
+
+  async function confirmDeleteConversation() {
+    const convId = pendingDeleteId
+    if (!convId) return
+    setPendingDeleteId(null)
     const { error: delErr } = await supabase.from('conversations').delete().eq('id', convId)
     if (delErr) { setError('Could not delete that conversation.'); return }
     setConversations(prev => prev.filter(c => c.id !== convId))
@@ -462,7 +468,7 @@ function AskPage() {
                         onMouseEnter={e => { e.currentTarget.style.background = 'rgba(28,74,55,0.6)'; e.currentTarget.style.color = 'var(--accent)' }}
                         onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-lo)' }}
                       >✎</button>
-                      <button onClick={e => { e.stopPropagation(); deleteConversation(c.id) }}
+                      <button onClick={e => { e.stopPropagation(); requestDeleteConversation(c.id) }}
                         title="Delete" aria-label="Delete conversation"
                         style={{
                           width: 22, height: 22, padding: 0,
@@ -616,6 +622,20 @@ function AskPage() {
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        title="Delete this conversation?"
+        body={(() => {
+          const label = conversations.find(c => c.id === pendingDeleteId)?.title?.trim() || NEW_CHAT_LABEL
+          return `"${label}" and every message in it will be permanently removed. This cannot be undone.`
+        })()}
+        confirmLabel="Delete"
+        cancelLabel="Keep it"
+        variant="danger"
+        onConfirm={confirmDeleteConversation}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </div>
   )
 }
