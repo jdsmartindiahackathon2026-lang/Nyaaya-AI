@@ -91,7 +91,7 @@ export default function TKDLPage() {
 
       {result && (
         <div className="rise-in" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-          {result.legal_context && (
+          {result.legal_context && result.legal_context.trim() && (
             <div style={{
               padding: '12px 16px', borderRadius: 8, border: '1px solid var(--border)',
               background: 'var(--bg-card)', fontSize: 12.5, color: 'var(--text-lo)', lineHeight: 1.6,
