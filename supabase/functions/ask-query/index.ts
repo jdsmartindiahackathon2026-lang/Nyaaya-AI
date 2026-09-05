@@ -1,19 +1,134 @@
+// NOTE: _shared/* imports are intentionally inlined below.
+// The Supabase MCP deploy bundler cannot resolve relative ../_shared/ paths,
+// so all shared helpers (cors, auth, rate_limit) are duplicated here verbatim.
+// Keep in sync with supabase/functions/_shared/ when those files change.
+
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-import { requireUser } from '../_shared/auth.ts'
-import { corsHeaders, handleOptions } from '../_shared/cors.ts'
-import { requireRateLimit } from '../_shared/rate_limit.ts'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import approvedSources from '../_shared/approved_sources.json' assert { type: 'json' }
 
-const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY')
+// ── INLINED: _shared/cors.ts ─────────────────────────────────────────────────
+const ALLOWED_ORIGINS = (Deno.env.get('ALLOWED_ORIGINS') ?? 'http://localhost:3000')
+  .split(',').map(s => s.trim()).filter(Boolean)
+
+function corsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get('Origin') ?? ''
+  const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0] ?? ''
+  return {
+    'Access-Control-Allow-Origin': allowed,
+    'Access-Control-Allow-Headers': 'authorization, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Vary': 'Origin'
+  }
+}
+
+function handleOptions(req: Request): Response {
+  return new Response('ok', { headers: corsHeaders(req) })
+}
+
+// ── INLINED: _shared/auth.ts ─────────────────────────────────────────────────
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
-const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
-// Use sonar-pro for legal accuracy; fall back to sonar if quota hit or model unavailable
-const PERPLEXITY_MODEL = 'sonar-pro'
-const PERPLEXITY_FALLBACK_MODEL = 'sonar'
+const unauthorized = (req: Request) => new Response(
+  JSON.stringify({ error: true, code: 'UNAUTHORIZED', message: 'Authentication required.', retryable: false }),
+  { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(req) } }
+)
 
-// Module-level flag: flip to false when sonar-pro returns a structural "model not available" error
-let sonarProAvailable = true
+async function requireUser(req: Request): Promise<{ error: Response } | { user: { id: string; [key: string]: unknown }; supabase: ReturnType<typeof createClient> }> {
+  const authHeader = req.headers.get('Authorization')
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return { error: unauthorized(req) }
+  }
+
+  const token = authHeader.replace('Bearer ', '')
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+  if (token === SUPABASE_SERVICE_ROLE_KEY) {
+    return { user: { id: 'system', is_service_role: true }, supabase }
+  }
+
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token)
+    if (error || !user) {
+      return { error: unauthorized(req) }
+    }
+    return { user: user as { id: string; [key: string]: unknown }, supabase }
+  } catch (_) {
+    return { error: unauthorized(req) }
+  }
+}
+
+// ── INLINED: _shared/rate_limit.ts ───────────────────────────────────────────
+type FunctionName =
+  | 'ask-query'
+  | 'classify-formulation'
+  | 'tkdl-search'
+  | 'mini-guide'
+  | 'translate'
+  | 'escalate'
+  | 'embed-query'
+
+const RATE_LIMITS: Record<FunctionName, number> = {
+  'ask-query': 20,
+  'classify-formulation': 20,
+  'tkdl-search': 20,
+  'mini-guide': 30,
+  'translate': 60,
+  'escalate': 5,
+  'embed-query': 60,
+}
+
+interface RateLimitUser { id: string; is_service_role?: boolean }
+
+async function requireRateLimit(
+  req: Request,
+  supabase: { rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }> },
+  user: RateLimitUser,
+  functionName: FunctionName,
+): Promise<Response | null> {
+  if (user.is_service_role) return null
+
+  const limit = RATE_LIMITS[functionName]
+
+  const { data, error } = await supabase.rpc('check_rate_limit', {
+    p_user_id: user.id,
+    p_function: functionName,
+    p_limit: limit,
+  })
+
+  if (error) {
+    console.error(`[rate-limit] RPC failed for ${functionName}:`, error)
+    return null
+  }
+
+  const row = Array.isArray(data) ? (data[0] as { allowed?: boolean; reset_at?: string } | undefined) : (data as { allowed?: boolean; reset_at?: string } | null)
+  if (row && row.allowed === false) {
+    return new Response(
+      JSON.stringify({
+        error: true,
+        code: 'RATE_LIMITED',
+        message: `Too many requests. Limit: ${limit}/minute for ${functionName}. Try again in a moment.`,
+        retryable: true,
+        reset_at: row.reset_at,
+      }),
+      {
+        status: 429,
+        headers: {
+          'Content-Type': 'application/json',
+          'Retry-After': '60',
+          ...corsHeaders(req),
+        },
+      },
+    )
+  }
+
+  return null
+}
+
+// ── CONSTANTS ─────────────────────────────────────────────────────────────────
+const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')
+const ANTHROPIC_MODEL = 'claude-haiku-4-5'
 
 function getDomainFilter(jurisdiction: string): string[] {
   if (jurisdiction === 'india') return approvedSources.filter_sets.ask_query_india
@@ -21,7 +136,7 @@ function getDomainFilter(jurisdiction: string): string[] {
   return approvedSources.filter_sets.ask_query_both
 }
 
-// --- System prompt for live Perplexity path (domain-filtered) ---
+// --- System prompt for live web-search path ---
 const SYSTEM_PROMPT_LIVE = (jurisdiction: string, userType: string) => {
   const domainList = getDomainFilter(jurisdiction)
     .map((d: string) => {
@@ -135,32 +250,33 @@ SCOPE: patents, GI, trademarks, designs, copyright, trade secrets, plant variety
 For out-of-scope questions: "This is outside the scope of Nyaaya AI. Please consult a qualified professional."`
 }
 
-async function callPerplexity(
-  model: string,
+async function callAnthropic(
   systemPrompt: string,
   query: string,
-  domainFilter: string[],
-  history: Array<{ role: string; content: string }>,
-  useSearch: boolean
-) {
+  history: Array<{ role: 'user' | 'assistant'; content: string }>,
+  allowedDomains?: string[]
+): Promise<Response> {
   const body: Record<string, unknown> = {
-    model,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      ...history,
-      { role: 'user', content: query }
-    ],
-    temperature: 0.1,
+    model: ANTHROPIC_MODEL,
+    max_tokens: 2048,
+    system: systemPrompt,
+    messages: [...history, { role: 'user', content: query }],
   }
-  if (useSearch) {
-    body.search_domain_filter = domainFilter
-    body.return_citations = true
-  } else {
-    body.return_citations = false
+  if (allowedDomains) {
+    body.tools = [{
+      type: 'web_search_20250305',
+      name: 'web_search',
+      max_uses: 3,
+      allowed_domains: allowedDomains,
+    }]
   }
-  return fetch('https://api.perplexity.ai/chat/completions', {
+  return fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
-    headers: { 'Authorization': `Bearer ${PERPLEXITY_API_KEY}`, 'Content-Type': 'application/json' },
+    headers: {
+      'x-api-key': ANTHROPIC_API_KEY!,
+      'anthropic-version': '2023-06-01',
+      'Content-Type': 'application/json',
+    },
     body: JSON.stringify(body),
   })
 }
@@ -186,7 +302,7 @@ function parseCitations(answerText: string, rawCitations: string[]) {
     if (parsed.length > 0) return parsed
   }
 
-  // Fallback: use raw citation URLs from Perplexity, enrich with domain metadata
+  // Fallback: use raw citation URLs, enrich with domain metadata
   return rawCitations.map((url: string) => {
     let hostname = ''
     try { hostname = new URL(url).hostname.replace('www.', '') } catch (_) { hostname = url }
@@ -255,7 +371,7 @@ serve(async (req) => {
       const embedRes = await fetch(`${SUPABASE_URL}/functions/v1/embed-query`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+          'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ text: query }),
@@ -304,83 +420,71 @@ serve(async (req) => {
     }
 
     // -------------------------------------------------------------------------
-    // STEP 3: Branch — hybrid RAG vs pure live-retrieval
+    // STEP 3: Branch — hybrid RAG vs live web-search
     // -------------------------------------------------------------------------
     const useLocalHits = hits.length > 0
 
-    // Guard: if no Perplexity key, we can't call the LLM at all.
-    // TODO(session-11): when local hits exist and PERPLEXITY_API_KEY is absent,
-    // return a synthesized answer built directly from chunk texts instead of 503.
-    if (!PERPLEXITY_API_KEY) {
-      return errorResponse(req, 'PERPLEXITY_MISSING', 'Knowledge service is not configured. Please contact support.', false, 503)
+    if (!ANTHROPIC_API_KEY) {
+      return errorResponse(req, 'ANTHROPIC_MISSING', 'Knowledge service is not configured. Please contact support.', false, 503)
     }
 
     const domainFilter = getDomainFilter(jurisdiction)
 
-    let perplexityRes: Response
-    let usedFallback = false
-    let modelUsedLabel: string
+    // Build the appropriate system prompt and decide whether to pass web-search domains
+    const systemPrompt = useLocalHits
+      ? SYSTEM_PROMPT_RAG(jurisdiction, userType, hits)
+      : SYSTEM_PROMPT_LIVE(jurisdiction, userType)
 
-    if (useLocalHits) {
-      // --- HYBRID RAG PATH ---
-      // Build a grounded system prompt with inline retrieved sources.
-      // Omit search_domain_filter; model should stay within the provided chunks.
-      const systemPrompt = SYSTEM_PROMPT_RAG(jurisdiction, userType, hits)
+    const webSearchDomains = useLocalHits ? undefined : domainFilter
 
-      if (!sonarProAvailable) {
-        perplexityRes = await callPerplexity(PERPLEXITY_FALLBACK_MODEL, systemPrompt, query, domainFilter, history, false)
-        usedFallback = true
-      } else {
-        perplexityRes = await callPerplexity(PERPLEXITY_MODEL, systemPrompt, query, domainFilter, history, false)
+    // Call Anthropic with single retry on 429 / 5xx
+    let anthropicRes = await callAnthropic(systemPrompt, query, history, webSearchDomains)
 
-        if (!perplexityRes.ok && (perplexityRes.status === 400 || perplexityRes.status === 403)) {
-          sonarProAvailable = false
-          console.warn('[ask-query] sonar-pro unavailable; downgrading to sonar for this worker lifetime')
-          perplexityRes = await callPerplexity(PERPLEXITY_FALLBACK_MODEL, systemPrompt, query, domainFilter, history, false)
-          usedFallback = true
-        } else if (!perplexityRes.ok && (perplexityRes.status === 402 || perplexityRes.status === 429)) {
-          perplexityRes = await callPerplexity(PERPLEXITY_FALLBACK_MODEL, systemPrompt, query, domainFilter, history, false)
-          usedFallback = true
-        }
-      }
-
-      modelUsedLabel = usedFallback ? `hybrid-rag+${PERPLEXITY_FALLBACK_MODEL}` : `hybrid-rag+${PERPLEXITY_MODEL}`
-    } else {
-      // --- PURE LIVE-RETRIEVAL PATH (no local hits / embed failed / RPC error) ---
-      const systemPrompt = SYSTEM_PROMPT_LIVE(jurisdiction, userType)
-
-      if (!sonarProAvailable) {
-        perplexityRes = await callPerplexity(PERPLEXITY_FALLBACK_MODEL, systemPrompt, query, domainFilter, history, true)
-        usedFallback = true
-      } else {
-        perplexityRes = await callPerplexity(PERPLEXITY_MODEL, systemPrompt, query, domainFilter, history, true)
-
-        if (!perplexityRes.ok && (perplexityRes.status === 400 || perplexityRes.status === 403)) {
-          sonarProAvailable = false
-          console.warn('[ask-query] sonar-pro unavailable; downgrading to sonar for this worker lifetime')
-          perplexityRes = await callPerplexity(PERPLEXITY_FALLBACK_MODEL, systemPrompt, query, domainFilter, history, true)
-          usedFallback = true
-        } else if (!perplexityRes.ok && (perplexityRes.status === 402 || perplexityRes.status === 429)) {
-          perplexityRes = await callPerplexity(PERPLEXITY_FALLBACK_MODEL, systemPrompt, query, domainFilter, history, true)
-          usedFallback = true
-        }
-      }
-
-      modelUsedLabel = usedFallback ? PERPLEXITY_FALLBACK_MODEL : PERPLEXITY_MODEL
+    if (anthropicRes.status === 401) {
+      console.error('[ask-query] Anthropic key invalid or missing')
+      return errorResponse(req, 'ANTHROPIC_AUTH', 'Service authentication failed. Please contact support.', false, 502)
     }
 
-    if (!perplexityRes.ok) {
-      if (perplexityRes.status === 429) return errorResponse(req, 'RATE_LIMITED', 'Too many requests. Please try again in a moment.', true)
-      return errorResponse(req, 'PERPLEXITY_UNAVAILABLE', 'Our knowledge service is temporarily unavailable. Please try again.', true)
+    if (anthropicRes.status === 429 || anthropicRes.status >= 500) {
+      await new Promise(r => setTimeout(r, 1000))
+      anthropicRes = await callAnthropic(systemPrompt, query, history, webSearchDomains)
     }
 
-    const perplexityData = await perplexityRes.json()
-    const answerText: string = perplexityData.choices[0].message.content
+    if (!anthropicRes.ok) {
+      const snippet = await anthropicRes.text().catch(() => '')
+      console.error('[ask-query] Anthropic error:', anthropicRes.status, snippet.slice(0, 200))
+      if (anthropicRes.status === 429) return errorResponse(req, 'RATE_LIMITED', 'Too many requests. Please try again in a moment.', true)
+      return errorResponse(req, 'UPSTREAM_UNAVAILABLE', 'Our knowledge service is temporarily unavailable. Please try again.', true, 503)
+    }
+
+    const anthropicData = await anthropicRes.json()
+
+    if (anthropicData.stop_reason === 'refusal') {
+      console.warn('[ask-query] Anthropic refused the request')
+      return errorResponse(req, 'REFUSAL', 'Request could not be processed. Please rephrase your question.', false, 502)
+    }
+
+    // Extract text answer from content blocks
+    let answerText = ''
+    for (const block of (anthropicData.content ?? [])) {
+      if (block.type === 'text') answerText += block.text
+    }
+
+    // Extract web-search citations from content blocks (live path only)
+    const webCitationUrls: string[] = []
+    if (!useLocalHits) {
+      for (const block of (anthropicData.content ?? [])) {
+        if (block.type === 'web_search_tool_result') {
+          for (const item of (block.content ?? [])) {
+            if (item.url) webCitationUrls.push(item.url)
+          }
+        }
+      }
+    }
 
     const confidence = deriveConfidence(answerText)
 
-    // Strip the CONFIDENCE line from the user-facing answer.
-    // In the RAG path the model won't emit a CITATIONS block (we told it not to), but strip it defensively.
+    // Strip the CONFIDENCE line from the user-facing answer
     const cleanAnswer = answerText
       .replace(/^CONFIDENCE:\s*(HIGH|MEDIUM|ABSTAIN)\b.*$/im, '')
       .replace(/CITATIONS:\s*[\s\S]*?(?=Information, not legal advice|$)/i, '')
@@ -389,16 +493,16 @@ serve(async (req) => {
     // Build citations
     let citations: Array<{ source: string; url: string; statute_ref: string }>
     if (useLocalHits) {
-      // Derive citations from the local chunk hits; ignore any model-emitted citations
       citations = hits.slice(0, 5).map(h => ({
         source: h.statute_display,
         url: h.deep_link || h.citation_url || '',
         statute_ref: `Section ${h.section_number}${h.clause_id ? ' ' + h.clause_id : ''}`,
       }))
     } else {
-      const rawCitations: string[] = perplexityData.citations ?? []
-      citations = parseCitations(answerText, rawCitations)
+      citations = parseCitations(answerText, webCitationUrls)
     }
+
+    const modelUsedLabel = useLocalHits ? 'claude-haiku-4-5+hybrid-rag' : 'claude-haiku-4-5+web-search'
 
     // Translate if needed
     let finalAnswer = cleanAnswer
@@ -406,7 +510,7 @@ serve(async (req) => {
       try {
         const translateRes = await fetch(`${SUPABASE_URL}/functions/v1/translate`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`, 'Content-Type': 'application/json' },
+          headers: { 'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ text: cleanAnswer, targetLanguage: language })
         })
         if (translateRes.ok) {

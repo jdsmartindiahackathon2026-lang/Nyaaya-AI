@@ -194,7 +194,9 @@ function parseCitations(answerText: string, rawCitations: string[]) {
   })
 }
 
-const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY')!
+const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')!
+const ANTHROPIC_MODEL = 'claude-haiku-4-5'
+const CLASSIFY_DOMAINS = approvedSources.filter_sets.classify_formulation
 
 const CLASSIFICATIONS = {
   classical: {
@@ -279,7 +281,7 @@ serve(async (req) => {
     let model_used: string
 
     if (chunks.length > 0) {
-      // RAG hit — build citations from local corpus, skip Perplexity
+      // RAG hit — build citations from local corpus, skip Anthropic
       citations = chunks.map((c: any) => ({
         display_name: c.statute_display,
         url: c.deep_link || c.citation_url,
@@ -288,26 +290,62 @@ serve(async (req) => {
       }))
       model_used = 'hybrid-rag'
     } else {
-      // ── Step 2 (fallback): Perplexity citation generation ──────────────────
-      model_used = 'sonar'
+      // ── Step 2 (fallback): Anthropic web-search citation generation ──────────
+      model_used = 'claude-haiku-4-5+web-search'
       try {
-        const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
+        const doFetch = () => fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${PERPLEXITY_API_KEY}`, 'Content-Type': 'application/json' },
+          headers: {
+            'x-api-key': ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01',
+            'Content-Type': 'application/json',
+          },
           body: JSON.stringify({
-            model: 'sonar',
-            messages: [
-              { role: 'system', content: 'You are a legal citation assistant. Output ONLY a CITATIONS block — no prose, no preamble. Each line must be exactly: display_name | url | statute_ref (e.g. "Patents Act 1970 | https://ipindia.gov.in/... | Section 3(p) of the Patents Act 1970"). Include only official Indian statute and regulatory sources.' },
-              { role: 'user', content: `Find key statute citations for: ${result.label} under Indian IP and drug regulatory law.\n\nCITATIONS:` }
-            ],
-            search_domain_filter: approvedSources.filter_sets.classify_formulation,
-            return_citations: true
-          })
+            model: ANTHROPIC_MODEL,
+            max_tokens: 1024,
+            system: 'You are a legal citation assistant. Output ONLY a CITATIONS block — no prose, no preamble. Each line must be exactly: display_name | url | statute_ref (e.g. "Patents Act 1970 | https://ipindia.gov.in/... | Section 3(p) of the Patents Act 1970"). Include only official Indian statute and regulatory sources.',
+            messages: [{ role: 'user', content: `Find key statute citations for: ${result.label} under Indian IP and drug regulatory law.\n\nCITATIONS:` }],
+            tools: [{
+              type: 'web_search_20250305',
+              name: 'web_search',
+              max_uses: 3,
+              allowed_domains: CLASSIFY_DOMAINS,
+            }],
+          }),
         })
-        if (pRes.ok) {
-          const pData = await pRes.json()
-          const answerText: string = pData.choices[0].message.content
-          citations = parseCitations(answerText, pData.citations ?? [])
+
+        let aRes = await doFetch()
+
+        if (aRes.status === 401) {
+          console.error('[classify-formulation] Anthropic key invalid or missing')
+        } else {
+          if (aRes.status === 429 || aRes.status >= 500) {
+            await new Promise(r => setTimeout(r, 1000))
+            aRes = await doFetch()
+          }
+
+          if (aRes.ok) {
+            const aData = await aRes.json()
+            if (aData.stop_reason !== 'refusal') {
+              let answerText = ''
+              for (const block of (aData.content ?? [])) {
+                if (block.type === 'text') answerText += block.text
+              }
+              // Collect web-search citation URLs
+              const webUrls: string[] = []
+              for (const block of (aData.content ?? [])) {
+                if (block.type === 'web_search_tool_result') {
+                  for (const item of (block.content ?? [])) {
+                    if (item.url) webUrls.push(item.url)
+                  }
+                }
+              }
+              citations = parseCitations(answerText, webUrls)
+            }
+          } else {
+            const snippet = await aRes.text().catch(() => '')
+            console.warn('[classify-formulation] Anthropic error:', aRes.status, snippet.slice(0, 200))
+          }
         }
       } catch (_) { /* citations optional */ }
     }
