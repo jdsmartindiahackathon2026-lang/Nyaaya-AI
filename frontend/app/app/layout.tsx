@@ -6,7 +6,6 @@ import RightSidebar from '../../components/RightSidebar'
 import AppHeader from '../../components/AppHeader'
 import MiniGuide from '../../components/MiniGuide'
 import ParticleField from '../../components/ParticleField'
-import OpeningSplash from '../../components/OpeningSplash'
 import { supabase } from '../../lib/supabase'
 
 const SIDEBAR_W = 310
@@ -16,7 +15,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const mode = pathname.split('/').pop() ?? 'ask'
 
-  const [splashDone, setSplashDone] = useState(false)
   const [authChecked, setAuthChecked] = useState(false)
   const [language, setLanguage] = useState('en')
   const [jurisdiction, setJurisdiction] = useState('india')
@@ -57,7 +55,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-    {!splashDone && <OpeningSplash onDone={() => setSplashDone(true)} />}
     <div style={{
       position: 'fixed',
       inset: 0,
