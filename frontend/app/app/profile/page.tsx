@@ -998,6 +998,13 @@ export default function ProfilePage() {
     setSaving(true)
     setSaveMsg('')
     try {
+      // H1: re-verify session so we use the authoritative auth id, not cached state
+      const { data: { user: authUser }, error: authErr } = await supabase.auth.getUser()
+      if (authErr || !authUser) {
+        setSaveMsg('Session expired — please sign in again.')
+        setSaving(false)
+        return
+      }
       const prefs: Preferences = {
         answer_style: answerStyle as Preferences['answer_style'],
         citation_depth: Number(citationDepth) as 3 | 10,
@@ -1041,7 +1048,7 @@ export default function ProfilePage() {
           context_answers: ctx,
           last_active: new Date().toISOString(),
         })
-        .eq('auth_id', user.auth_id)
+        .eq('auth_id', authUser.id)
       if (error) throw error
       setSaveMsg('Saved')
       setTimeout(() => setSaveMsg(''), 2000)
