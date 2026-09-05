@@ -56,3 +56,11 @@ frontend/*.zip
 frontend/*.mp4
 frontend/*.png
 frontend/*.svg
+
+# Internal working docs — kept locally, never committed to the public repo
+context.md
+progress.md
+ENGINEERING_PRINCIPLES.md
+ENGINEERING_PRINCIPLES_TEMPLATE.md
+SECURITY_AUDIT_PLAYBOOK.md
+SECURITY_AUDIT_PLAYBOOK_TEMPLATE.md
