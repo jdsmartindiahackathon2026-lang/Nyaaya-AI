@@ -163,11 +163,12 @@ async function retrieveChunks(
 }
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
-const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY')!
+const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')!
+const ANTHROPIC_MODEL = 'claude-haiku-4-5'
 const TKDL_DOMAINS = approvedSources.filter_sets.tkdl_search
 
 const DISCLAIMER = 'Records shown are illustrative of TKDL and IndiaCode retrieval. The deployed system queries the official databases directly. A not-found result does not constitute freedom to operate.'
-const DISCLAIMER_PERPLEXITY_MISSING = 'TKDL record lookup is temporarily unavailable. Legal context is sourced from the local statutory corpus. A not-found result does not constitute freedom to operate.'
+const DISCLAIMER_ANTHROPIC_MISSING = 'TKDL record lookup is temporarily unavailable. Legal context is sourced from the local statutory corpus. A not-found result does not constitute freedom to operate.'
 
 // ── HANDLER ───────────────────────────────────────────────────────────────────
 serve(async (req) => {
@@ -189,34 +190,42 @@ serve(async (req) => {
       })
     }
 
-    // ── Call A (legal framing via local RAG) + Call B (TKDL via Perplexity) in parallel
+    // ── Call A (legal framing via local RAG) + Call B (TKDL via Anthropic) in parallel
     const legalQuery = `${query} biopiracy prior art traditional knowledge patent opposition`
 
-    const [legalChunks, pRes] = await Promise.all([
+    const anthropicBody = {
+      model: ANTHROPIC_MODEL,
+      max_tokens: 1024,
+      system: `You are a TKDL (Traditional Knowledge Digital Library) search assistant. Search only tkdl.res.in and indiacode.nic.in. Output ONLY a JSON array — no prose, no markdown fences. Each element must have exactly these fields: { "name": "<formulation name>", "status": "documented" | "partial" | "not_found", "tkdlRef": "<AY-XXXX or null>", "description": "<one-sentence summary>", "source": "<url>" }. Return up to 5 records, one per distinct formulation match. Return [] if nothing found.`,
+      messages: [{ role: 'user', content: `Search TKDL for: ${query}` }],
+      tools: [{
+        type: 'web_search_20250305',
+        name: 'web_search',
+        max_uses: 3,
+        allowed_domains: TKDL_DOMAINS,
+      }],
+    }
+
+    const doAnthropicFetch = () => fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(anthropicBody),
+    }).catch(err => {
+      console.warn('[tkdl-search] Anthropic fetch error:', err)
+      return null
+    })
+
+    const [legalChunks, aRes] = await Promise.all([
       retrieveChunks(supabase, legalQuery, {
         threshold: 0.60,
         count: 3,
         statuteFilter: ['patents-act-1970', 'bd-act-2002', 'bd-rules-2004'],
       }),
-      fetch('https://api.perplexity.ai/chat/completions', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${PERPLEXITY_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'sonar',
-          messages: [
-            {
-              role: 'system',
-              content: `You are a TKDL (Traditional Knowledge Digital Library) search assistant. Search only tkdl.res.in and indiacode.nic.in. Output ONLY a JSON array — no prose, no markdown fences. Each element must have exactly these fields: { "name": "<formulation name>", "status": "documented" | "partial" | "not_found", "tkdlRef": "<AY-XXXX or null>", "description": "<one-sentence summary>", "source": "<url>" }. Return up to 5 records, one per distinct formulation match. Return [] if nothing found.`
-            },
-            { role: 'user', content: `Search TKDL for: ${query}` }
-          ],
-          search_domain_filter: TKDL_DOMAINS,
-          return_citations: true
-        })
-      }).catch(err => {
-        console.warn('[tkdl-search] Perplexity fetch error:', err)
-        return null
-      })
+      doAnthropicFetch()
     ])
 
     const legal_context = legalChunks.map((c: any) => ({
@@ -227,21 +236,74 @@ serve(async (req) => {
       deep_link: c.deep_link,
     }))
 
-    // ── Handle Perplexity failure gracefully ──────────────────────────────────
-    if (!pRes || !pRes.ok) {
-      console.warn('[tkdl-search] Perplexity unavailable, returning legal_context only')
+    // ── Handle Anthropic 401 ──────────────────────────────────────────────────
+    if (aRes && aRes.status === 401) {
+      console.error('[tkdl-search] Anthropic key invalid or missing')
       return new Response(JSON.stringify({
         results: [],
         legal_context,
-        model_used: 'hybrid-rag+sonar',
-        disclaimer: DISCLAIMER_PERPLEXITY_MISSING,
+        model_used: 'hybrid-rag+claude-haiku-4-5',
+        disclaimer: DISCLAIMER_ANTHROPIC_MISSING,
       }), {
         headers: { 'Content-Type': 'application/json', ...corsHeaders(req) }
       })
     }
 
-    const pData = await pRes.json()
-    const answerText: string = pData.choices[0].message.content
+    // ── Retry on 429 / 5xx ────────────────────────────────────────────────────
+    let finalARes = aRes
+    if (aRes && (aRes.status === 429 || aRes.status >= 500)) {
+      await new Promise(r => setTimeout(r, 1000))
+      finalARes = await doAnthropicFetch()
+    }
+
+    // ── Handle Anthropic failure gracefully ───────────────────────────────────
+    if (!finalARes || !finalARes.ok) {
+      if (finalARes) {
+        const snippet = await finalARes.text().catch(() => '')
+        console.warn('[tkdl-search] Anthropic error:', finalARes.status, snippet.slice(0, 200))
+      } else {
+        console.warn('[tkdl-search] Anthropic unavailable, returning legal_context only')
+      }
+      return new Response(JSON.stringify({
+        results: [],
+        legal_context,
+        model_used: 'hybrid-rag+claude-haiku-4-5',
+        disclaimer: DISCLAIMER_ANTHROPIC_MISSING,
+      }), {
+        headers: { 'Content-Type': 'application/json', ...corsHeaders(req) }
+      })
+    }
+
+    const aData = await finalARes.json()
+
+    if (aData.stop_reason === 'refusal') {
+      console.warn('[tkdl-search] Anthropic refused the request')
+      return new Response(JSON.stringify({
+        results: [],
+        legal_context,
+        model_used: 'hybrid-rag+claude-haiku-4-5',
+        disclaimer: DISCLAIMER_ANTHROPIC_MISSING,
+      }), {
+        headers: { 'Content-Type': 'application/json', ...corsHeaders(req) }
+      })
+    }
+
+    // Extract text answer from content blocks
+    let answerText = ''
+    for (const block of (aData.content ?? [])) {
+      if (block.type === 'text') answerText += block.text
+    }
+
+    // Extract first web-search result URL as fallback source
+    let fallbackSource = 'tkdl.res.in'
+    for (const block of (aData.content ?? [])) {
+      if (block.type === 'web_search_tool_result') {
+        for (const item of (block.content ?? [])) {
+          if (item.url) { fallbackSource = item.url; break }
+        }
+        break
+      }
+    }
 
     const VALID_STATUSES = new Set(['documented', 'partial', 'not_found'])
 
@@ -273,14 +335,14 @@ serve(async (req) => {
         status,
         description: answerText,
         tkdlRef: tkdlRefMatch ? tkdlRefMatch[0] : null,
-        source: (pData.citations ?? [])[0] ?? 'tkdl.res.in'
+        source: fallbackSource
       }]
     }
 
     return new Response(JSON.stringify({
       results,
       legal_context,
-      model_used: 'hybrid-rag+sonar',
+      model_used: 'hybrid-rag+claude-haiku-4-5',
       disclaimer: DISCLAIMER,
     }), {
       headers: { 'Content-Type': 'application/json', ...corsHeaders(req) }
