@@ -12,7 +12,7 @@ const ISSUE_TYPES = [
   'Other',
 ]
 
-const URGENCY_OPTS = ['Informational', 'Low', 'Medium', 'High']
+const URGENCY_OPTS = ['Low', 'Medium', 'High']
 
 export default function EscalatePageWrapper() {
   return (
@@ -58,7 +58,7 @@ function EscalatePage() {
       const querySummary = `[${issueType}] ${description}`
       const contact = `${name} <${email}>`
       const { data, error: fnError } = await supabase.functions.invoke('escalate', {
-        body: { querySummary, contact, urgency }
+        body: { querySummary, contact, urgency: urgency.toLowerCase() }
       })
       if (fnError) throw fnError
       if (data?.error) throw new Error(data.message)
