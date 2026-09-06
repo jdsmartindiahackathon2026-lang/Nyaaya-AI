@@ -90,7 +90,7 @@ async function requireRateLimit(
 let extractorPromise: Promise<any> | null = null
 function getExtractor() {
   if (!extractorPromise) {
-    extractorPromise = pipeline('feature-extraction', 'Xenova/bge-small-en-v1.5', { quantized: true })
+    extractorPromise = pipeline('feature-extraction', 'Xenova/bge-small-en-v1.5', { quantized: true, device: 'wasm' })
   }
   return extractorPromise
 }

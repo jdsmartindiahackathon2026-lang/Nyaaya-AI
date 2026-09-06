@@ -37,15 +37,46 @@ export default function ClassifyPage() {
   }
 
   async function classify() {
+    if (!productName.trim() || !productType) { setError('Fill required fields.'); return }
     setLoading(true)
     setError(null)
     try {
+      // Build payload matching classify-formulation backend contract
+      const answers: Record<string, unknown> = {}
+      if (productType === 'Classical') {
+        answers.firstSchedule = 'yes'
+      } else if (productType !== 'Not sure') {
+        answers.firstSchedule = 'no'
+      }
+      if (productType === 'Cosmetic') {
+        answers.innovationType = 'cosmetic'
+      } else if (productType === 'Food/Aahar') {
+        answers.innovationType = 'aahar'
+      } else if (flags.hasNovelIngredient) {
+        answers.innovationType = 'new_drug'
+      }
+      answers.usesTraditionalKnowledge = !!flags.hasWildCollection
+
       const { data, error: fnError } = await supabase.functions.invoke('classify-formulation', {
-        body: { productName, productType, description, ingredients, flags }
+        body: { step: 3, answers, language: 'en' }
       })
       if (fnError) throw fnError
       if (data?.error) throw new Error(data.message)
-      setResult(data)
+
+      // Map backend response shape to frontend Result interface
+      const mapped: Result = {
+        classification: data.label ?? data.classification ?? '',
+        regime: data.classification ?? '',
+        rationale: [data.ipPosture, data.regulatoryRequirements].filter(Boolean).join('\n\n'),
+        next_steps: data.nextStep ? [data.nextStep] : [],
+        citations: (data.citations ?? []).map((c: Record<string, string>) => ({
+          source: c.display_name ?? c.source ?? '',
+          url: c.url ?? '',
+          statute_ref: c.statute_ref ?? '',
+        })),
+        confidence: data.model_used === 'hybrid-rag' ? 'high' : 'medium',
+      }
+      setResult(mapped)
       setStep(3)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Classification failed. Please try again.')
