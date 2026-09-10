@@ -41,6 +41,18 @@ function TreeGlyph() {
 
 // ── AnswerCard — styled container for assistant messages ──────────────────────
 function AnswerCard({ content, confidence }: { content: string; confidence?: 'high' | 'medium' | 'abstain' }) {
+  const [copied, setCopied] = useState(false)
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(content)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Fallback if clipboard API is unavailable
+    }
+  }
+
   return (
     <div style={{
       padding: '20px 22px',
@@ -52,7 +64,7 @@ function AnswerCard({ content, confidence }: { content: string; confidence?: 'hi
       boxShadow: '0 12px 32px rgba(0,0,0,0.35)',
     }}>
       {/* Header row */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
           <TreeGlyph />
           <span style={{
@@ -61,17 +73,46 @@ function AnswerCard({ content, confidence }: { content: string; confidence?: 'hi
             letterSpacing: '0.08em', color: '#7fd9ae',
           }}>Nyaaya AI</span>
         </div>
-        {confidence && (
-          <span className={`label-xs confidence-${confidence}`}>
-            {confidence.toUpperCase()} CONFIDENCE
-          </span>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {confidence && (
+            <span className={`label-xs confidence-${confidence}`}>
+              {confidence.toUpperCase()} CONFIDENCE
+            </span>
+          )}
+          <button
+            onClick={handleCopy}
+            title="Copy answer markdown to clipboard"
+            style={{
+              padding: '3px 8px', borderRadius: 5,
+              border: '1px solid var(--border)',
+              background: copied ? 'rgba(127,217,174,0.15)' : 'transparent',
+              color: copied ? 'var(--accent)' : 'var(--text-lo)',
+              fontFamily: "'IBM Plex Mono', monospace",
+              fontSize: 11, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 4,
+              transition: 'all 120ms',
+            }}
+          >
+            {copied ? '✓ Copied' : 'Copy'}
+          </button>
+        </div>
       </div>
       {/* Divider */}
       <div style={{ height: 1, background: 'rgba(90,201,168,0.12)', marginBottom: 14 }} />
       {/* Markdown body */}
       <div className="md-body">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            a: ({ href, children }) => (
+              <a href={href} target="_blank" rel="noopener noreferrer">
+                {children}
+              </a>
+            ),
+          }}
+        >
+          {content}
+        </ReactMarkdown>
       </div>
     </div>
   )
@@ -603,12 +644,17 @@ function AskPage() {
             <textarea
               ref={textareaRef}
               value={query}
-              onChange={e => setQuery(e.target.value)}
+              onChange={e => {
+                setQuery(e.target.value)
+                const target = e.target
+                target.style.height = 'auto'
+                target.style.height = `${Math.min(target.scrollHeight, 180)}px`
+              }}
               onKeyDown={handleKey}
               rows={2}
               placeholder="Ask a question about Ayurveda IP or regulatory compliance…"
               className="chat-input"
-              style={{ flex: 1 }}
+              style={{ flex: 1, minHeight: 52, maxHeight: 180, overflowY: 'auto' }}
               maxLength={MAX_QUERY_LEN}
               disabled={loading}
             />

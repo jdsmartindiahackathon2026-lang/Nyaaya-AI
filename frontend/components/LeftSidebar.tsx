@@ -42,8 +42,13 @@ export default function LeftSidebar({ language, onLanguageChange }: Props) {
       overflowY: 'auto',
       overflowX: 'hidden',
     }}>
-      {/* Branding */}
-      <div className="unfurl-l" style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+      {/* Branding — links to homepage */}
+      <div
+        className="unfurl-l"
+        onClick={() => router.push('/')}
+        title="Return to homepage"
+        style={{ display: 'flex', flexDirection: 'column', gap: 5, cursor: 'pointer' }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <IPSaktiLogo size={20} />
           <span className="serif" style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--text-hi)', lineHeight: 1.2 }}>
