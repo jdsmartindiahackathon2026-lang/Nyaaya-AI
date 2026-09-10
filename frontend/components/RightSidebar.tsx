@@ -19,6 +19,18 @@ const NINE_REALMS = [
   { label: 'Drug-regulatory',           count: '1,504' },
 ]
 
+const REALM_QUERIES: Record<string, string> = {
+  'Patents': 'What are the patentability criteria and Section 3(p) exclusions for herbal formulations under the Patents Act 1970?',
+  'Geographical Indications': 'How does Geographical Indications registration apply to traditional regional Ayurvedic products under the GI Act 1999?',
+  'Trademarks': 'What are trademark registration rules for Ayurvedic brands and classical formulation names under Trade Marks Act 1999?',
+  'Designs': 'Can packaging, novel bottle shapes, or dispensers for Ayurvedic formulations receive Design protection under Designs Act 2000?',
+  'Copyright': 'What copyright protection exists for Ayurvedic instructional texts, classical commentary, and branding materials under Copyright Act 1957?',
+  'Trade Secrets': 'How are proprietary Ayurvedic extraction methods and confidential processes protected under Indian contract and common law?',
+  'Plant-variety Rights': 'How does the PPV&FR Act 2001 protect breeders and farmers cultivating medicinal plant varieties?',
+  'Access & Benefit-Sharing': 'What National Biodiversity Authority (NBA) approvals and ABS benefit-sharing fees apply to bio-resource sourcing?',
+  'Drug-regulatory': 'What regulatory compliance and licensing is required under the Drugs and Cosmetics Act 1940 and Phytopharmaceutical Rules 2015?',
+}
+
 interface Props {
   userType: string
   jurisdiction: string
@@ -28,6 +40,14 @@ interface Props {
 export default function RightSidebar({ userType, jurisdiction, classification }: Props) {
   const [activeRegime, setActiveRegime] = useState<string | null>(null)
   const router = useRouter()
+
+  function handleRealmClick(label: string) {
+    const next = activeRegime === label ? null : label
+    setActiveRegime(next)
+    if (next && REALM_QUERIES[next]) {
+      router.push(`/app/ask?q=${encodeURIComponent(REALM_QUERIES[next])}`)
+    }
+  }
 
   async function signOut() {
     try {
@@ -59,12 +79,16 @@ export default function RightSidebar({ userType, jurisdiction, classification }:
     }}>
       {/* Nine Realms */}
       <div className="unfurl-r" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div className="label-xs">Nine Realms — regime map</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="label-xs">Nine Realms — regime map</div>
+          <span style={{ fontSize: 10, color: 'var(--text-dim)', fontStyle: 'italic' }}>click to ask</span>
+        </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
           {NINE_REALMS.map(r => (
             <button
               key={r.label}
-              onClick={() => setActiveRegime(a => a === r.label ? null : r.label)}
+              onClick={() => handleRealmClick(r.label)}
+              title={`Ask a query about ${r.label}`}
               className={`regime-btn${activeRegime === r.label ? ' active' : ''}`}
             >
               <span style={{ fontSize: 12 }}>{r.label}</span>

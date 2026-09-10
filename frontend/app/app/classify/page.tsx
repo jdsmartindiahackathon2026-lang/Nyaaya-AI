@@ -31,9 +31,25 @@ export default function ClassifyPage() {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<Result | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [touched, setTouched] = useState<Record<string, boolean>>({})
 
   function toggleFlag(key: string) {
     setFlags(f => ({ ...f, [key]: !f[key] }))
+  }
+
+  const stepValid = [
+    productName.trim().length > 0 && productType.length > 0,
+    ingredients.trim().length > 0,
+    true,
+  ]
+
+  function handleNextStep(targetStep: number) {
+    if (targetStep > step && !stepValid[step]) {
+      setTouched(t => ({ ...t, [step === 0 ? 'step0' : 'step1']: true }))
+      return
+    }
+    setError(null)
+    setStep(targetStep)
   }
 
   async function classify() {
@@ -85,13 +101,7 @@ export default function ClassifyPage() {
     }
   }
 
-  function reset() { setStep(0); setResult(null); setError(null); setProductName(''); setProductType(''); setDescription(''); setIngredients(''); setFlags({}) }
-
-  const stepValid = [
-    productName.trim() && productType,
-    ingredients.trim(),
-    true,
-  ]
+  function reset() { setStep(0); setResult(null); setError(null); setProductName(''); setProductType(''); setDescription(''); setIngredients(''); setFlags({}); setTouched({}) }
 
   return (
     <div style={{ padding: '26px 30px', maxWidth: 680, display: 'flex', flexDirection: 'column', gap: 28 }}>
@@ -106,21 +116,34 @@ export default function ClassifyPage() {
 
       {/* Step indicator */}
       {step < 3 && (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {STEPS.map((s, i) => (
-            <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{
-                width: 24, height: 24, borderRadius: '50%', fontSize: 12, fontWeight: 600,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                background: i < step ? 'var(--accent)' : i === step ? 'rgba(127,217,174,0.2)' : 'var(--bg-input)',
-                color: i < step ? '#0b1512' : i === step ? 'var(--accent)' : 'var(--text-dim)',
-                border: i === step ? '1px solid var(--accent-dim)' : '1px solid var(--border)',
-                flexShrink: 0,
-              }}>{i + 1}</div>
-              <span style={{ fontSize: 12, color: i === step ? 'var(--text)' : 'var(--text-dim)' }}>{s}</span>
-              {i < STEPS.length - 1 && <span style={{ color: 'var(--border-hi)', fontSize: 10 }}>›</span>}
-            </div>
-          ))}
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          {STEPS.map((s, i) => {
+            const isClickable = i < step || (i <= step + 1 && stepValid[step])
+            return (
+              <div
+                key={s}
+                onClick={() => { if (isClickable) handleNextStep(i) }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  cursor: isClickable ? 'pointer' : 'default',
+                  opacity: i > step && !stepValid[step] ? 0.5 : 1,
+                }}
+                title={isClickable ? `Jump to ${s}` : undefined}
+              >
+                <div style={{
+                  width: 26, height: 26, borderRadius: '50%', fontSize: 12, fontWeight: 600,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: i < step ? 'var(--accent)' : i === step ? 'rgba(127,217,174,0.2)' : 'var(--bg-input)',
+                  color: i < step ? '#0b1512' : i === step ? 'var(--accent)' : 'var(--text-dim)',
+                  border: i === step ? '1px solid var(--accent-dim)' : '1px solid var(--border)',
+                  flexShrink: 0,
+                  transition: 'all 150ms',
+                }}>{i < step ? '✓' : i + 1}</div>
+                <span style={{ fontSize: 12.5, fontWeight: i === step ? 600 : 400, color: i === step ? 'var(--text-hi)' : 'var(--text-dim)' }}>{s}</span>
+                {i < STEPS.length - 1 && <span style={{ color: 'var(--border-hi)', fontSize: 10 }}>›</span>}
+              </div>
+            )
+          })}
         </div>
       )}
 
@@ -128,13 +151,22 @@ export default function ClassifyPage() {
       {step === 0 && (
         <div className="rise-in" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <label className="label-xs">Product name</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <label className="label-xs">Product name <span style={{ color: 'var(--accent)' }}>*</span></label>
+              {touched.step0 && !productName.trim() && (
+                <span style={{ fontSize: 11, color: '#e8a0a0' }}>Product name is required</span>
+              )}
+            </div>
             <input
               value={productName}
-              onChange={e => setProductName(e.target.value)}
+              onChange={e => {
+                setProductName(e.target.value)
+                if (touched.step0) setTouched(t => ({ ...t, step0: false }))
+              }}
               placeholder="e.g. Ashwagandhadi Churna"
               style={{
-                background: 'var(--bg-input)', border: '1px solid var(--border-hi)',
+                background: 'var(--bg-input)',
+                border: touched.step0 && !productName.trim() ? '1px solid #c47a7a' : '1px solid var(--border-hi)',
                 borderRadius: 8, padding: '10px 12px', color: 'var(--text)',
                 fontSize: 14, outline: 'none', fontFamily: "'IBM Plex Sans', sans-serif",
                 width: '100%', boxSizing: 'border-box',
@@ -142,15 +174,24 @@ export default function ClassifyPage() {
             />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <label className="label-xs">Product type</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <label className="label-xs">Product type <span style={{ color: 'var(--accent)' }}>*</span></label>
+              {touched.step0 && !productType && (
+                <span style={{ fontSize: 11, color: '#e8a0a0' }}>Please select a type</span>
+              )}
+            </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {PRODUCT_TYPES.map(t => (
-                <button key={t} onClick={() => setProductType(t)}
+                <button key={t} onClick={() => {
+                  setProductType(t)
+                  if (touched.step0) setTouched(t => ({ ...t, step0: false }))
+                }}
                   style={{
-                    padding: '7px 14px', borderRadius: 8, fontSize: 13, cursor: 'pointer',
-                    border: `1px solid ${productType === t ? 'var(--accent)' : 'var(--border-hi)'}`,
-                    background: productType === t ? 'rgba(127,217,174,0.12)' : 'var(--bg-input)',
+                    padding: '8px 15px', borderRadius: 8, fontSize: 13, cursor: 'pointer',
+                    border: `1px solid ${productType === t ? 'var(--accent)' : touched.step0 && !productType ? 'rgba(196,122,122,0.6)' : 'var(--border-hi)'}`,
+                    background: productType === t ? 'rgba(127,217,174,0.15)' : 'var(--bg-input)',
                     color: productType === t ? 'var(--accent)' : 'var(--text)',
+                    transition: 'all 120ms',
                   }}>{t}</button>
               ))}
             </div>
@@ -170,8 +211,12 @@ export default function ClassifyPage() {
               }}
             />
           </div>
-          <button onClick={() => setStep(1)} disabled={!stepValid[0]} className="send-btn" style={{ alignSelf: 'flex-start', padding: '10px 22px' }}>
-            Next →
+          <button
+            onClick={() => handleNextStep(1)}
+            className="send-btn"
+            style={{ alignSelf: 'flex-start', padding: '10px 22px' }}
+          >
+            Next: Add ingredients →
           </button>
         </div>
       )}
@@ -180,14 +225,23 @@ export default function ClassifyPage() {
       {step === 1 && (
         <div className="rise-in" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <label className="label-xs">Key ingredients</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <label className="label-xs">Key ingredients <span style={{ color: 'var(--accent)' }}>*</span></label>
+              {touched.step1 && !ingredients.trim() && (
+                <span style={{ fontSize: 11, color: '#e8a0a0' }}>Ingredients list is required</span>
+              )}
+            </div>
             <textarea
               value={ingredients}
-              onChange={e => setIngredients(e.target.value)}
+              onChange={e => {
+                setIngredients(e.target.value)
+                if (touched.step1) setTouched(t => ({ ...t, step1: false }))
+              }}
               rows={5}
-              placeholder="List the main ingredients, one per line or comma-separated. Include botanical names where known."
+              placeholder="List the main ingredients, one per line or comma-separated. Include botanical names where known (e.g. Withania somnifera, Zingiber officinale)."
               style={{
-                background: 'var(--bg-input)', border: '1px solid var(--border-hi)',
+                background: 'var(--bg-input)',
+                border: touched.step1 && !ingredients.trim() ? '1px solid #c47a7a' : '1px solid var(--border-hi)',
                 borderRadius: 8, padding: '10px 12px', color: 'var(--text)',
                 fontSize: 14, outline: 'none', resize: 'vertical', width: '100%',
                 fontFamily: "'IBM Plex Sans', sans-serif", boxSizing: 'border-box',
@@ -209,8 +263,12 @@ export default function ClassifyPage() {
               padding: '10px 18px', borderRadius: 8, border: '1px solid var(--border-hi)',
               background: 'transparent', color: 'var(--text)', fontSize: 13, cursor: 'pointer',
             }}>← Back</button>
-            <button onClick={() => setStep(2)} disabled={!stepValid[1]} className="send-btn" style={{ padding: '10px 22px' }}>
-              Review →
+            <button
+              onClick={() => handleNextStep(2)}
+              className="send-btn"
+              style={{ padding: '10px 22px' }}
+            >
+              Review formulation →
             </button>
           </div>
         </div>
@@ -250,7 +308,7 @@ export default function ClassifyPage() {
               background: 'transparent', color: 'var(--text)', fontSize: 13, cursor: 'pointer',
             }}>← Back</button>
             <button onClick={classify} disabled={loading} className="send-btn" style={{ padding: '10px 22px' }}>
-              {loading ? 'Classifying…' : 'Classify →'}
+              {loading ? 'Classifying…' : 'Classify formulation →'}
             </button>
           </div>
         </div>
@@ -286,7 +344,7 @@ export default function ClassifyPage() {
               <div className="label-xs">Sources</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {result.citations.map((c, i) => (
-                  <a key={i} href={c.url} target="_blank" rel="noreferrer" style={{
+                  <a key={i} href={c.url} target="_blank" rel="noopener noreferrer" style={{
                     padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border)',
                     fontSize: 11.5, color: 'var(--accent)', textDecoration: 'none', background: 'var(--bg-card)',
                   }}>{c.statute_ref || c.source}</a>
@@ -294,11 +352,24 @@ export default function ClassifyPage() {
               </div>
             </div>
           )}
-          <button onClick={reset} style={{
-            alignSelf: 'flex-start', padding: '10px 18px', borderRadius: 8,
-            border: '1px solid var(--border-hi)', background: 'transparent',
-            color: 'var(--text)', fontSize: 13, cursor: 'pointer',
-          }}>Classify another formulation</button>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
+            <button onClick={reset} style={{
+              padding: '10px 18px', borderRadius: 8,
+              border: '1px solid var(--border-hi)', background: 'transparent',
+              color: 'var(--text)', fontSize: 13, cursor: 'pointer',
+            }}>Classify another formulation</button>
+            <a
+              href={`/app/ask?q=${encodeURIComponent(`What regulatory filings apply to a ${result.classification || productType} formulation like ${productName}?`)}`}
+              style={{
+                padding: '10px 18px', borderRadius: 8,
+                border: '1px solid var(--accent-dim)', background: 'rgba(127,217,174,0.1)',
+                color: 'var(--accent)', fontSize: 13, textDecoration: 'none',
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+              }}
+            >
+              Ask legal assistant about this →
+            </a>
+          </div>
         </div>
       )}
     </div>
