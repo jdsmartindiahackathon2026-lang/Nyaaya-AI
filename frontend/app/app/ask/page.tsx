@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { MAX_QUERY_LEN, trimToLen } from '../../../lib/validators'
 import ReactMarkdown from 'react-markdown'
+import { useWorkspace } from '../../../lib/workspaceContext'
 import ConfirmDialog from '../../../components/ConfirmDialog'
 import remarkGfm from 'remark-gfm'
 
@@ -170,6 +171,7 @@ function AskPage() {
   const [error, setError] = useState<string | null>(null)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
   const [userRowId, setUserRowId] = useState<string | null>(null)
+  const { activeOrg } = useWorkspace()
   const [conversations, setConversations] = useState<ConversationRow[]>([])
   const [activeConvId, setActiveConvId] = useState<string | null>(null)
   const [loadingConv, setLoadingConv] = useState(false)
@@ -190,7 +192,7 @@ function AskPage() {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
-  // ── Fetch users.id + past conversations on mount ───────────────────────────
+  // ── Fetch users.id + past conversations on mount or when activeOrg changes ──
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -200,17 +202,25 @@ function AskPage() {
         .from('users').select('id').eq('auth_id', user.id).maybeSingle()
       if (cancelled || !userRow) return
       setUserRowId(userRow.id)
-      const { data: convs } = await supabase
+
+      let query = supabase
         .from('conversations')
         .select('id, title, created_at')
-        .eq('user_id', userRow.id)
         .order('created_at', { ascending: false })
         .limit(50)
+
+      if (activeOrg?.id) {
+        query = query.eq('org_id', activeOrg.id)
+      } else {
+        query = query.eq('user_id', userRow.id)
+      }
+
+      const { data: convs } = await query
       if (cancelled) return
       setConversations(convs ?? [])
     })()
     return () => { cancelled = true }
-  }, [])
+  }, [activeOrg?.id])
 
   // ── Handle ?q= deep link (auto-send once) ──────────────────────────────────
   useEffect(() => {
@@ -245,9 +255,13 @@ function AskPage() {
     if (activeConvId) return { id: activeConvId, isNew: false }
     if (!userRowId) return null
     const title = firstQuery.length > 60 ? firstQuery.slice(0, 60).trimEnd() + '…' : firstQuery
+    const insertPayload: Record<string, any> = { user_id: userRowId, jurisdiction, title }
+    if (activeOrg?.id) {
+      insertPayload.org_id = activeOrg.id
+    }
     const { data, error: insErr } = await supabase
       .from('conversations')
-      .insert({ user_id: userRowId, jurisdiction, title })
+      .insert(insertPayload)
       .select('id, title, created_at')
       .single()
     if (insErr || !data) return null
