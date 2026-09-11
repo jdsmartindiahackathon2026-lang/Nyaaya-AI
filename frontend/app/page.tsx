@@ -42,6 +42,20 @@ export default function LandingPage() {
   })), [])
 
   useEffect(() => {
+    document.title = 'Nyaaya AI — IP-SAKTI | Ayurvedic IP, Patents & ABS Legal Intelligence'
+    let metaDesc = document.querySelector('meta[name="description"]')
+    if (!metaDesc) {
+      metaDesc = document.createElement('meta')
+      metaDesc.setAttribute('name', 'description')
+      document.head.appendChild(metaDesc)
+    }
+    metaDesc.setAttribute(
+      'content',
+      'The AI-powered statutory intelligence platform for Ayurveda. Cross-reference TKDL prior art, navigate Biological Diversity Act ABS clearance, and evaluate patent eligibility under Section 3(p).'
+    )
+  }, [])
+
+  useEffect(() => {
     const onScroll = () => {
       const sy = window.scrollY || window.pageYOffset || 0
       const doc = document.documentElement

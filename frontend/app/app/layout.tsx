@@ -16,6 +16,51 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const mode = pathname.split('/').pop() ?? 'ask'
 
+  // Dynamic route-specific SEO titles and meta descriptions
+  useEffect(() => {
+    const routeMeta: Record<string, { title: string; desc: string }> = {
+      ask: {
+        title: 'Statutory IP Guidance | Nyaaya AI — IP-SAKTI',
+        desc: 'Consult Nyaaya AI on the Patents Act, Biological Diversity Act, and WIPO treaties for Ayurvedic and traditional formulations.',
+      },
+      classify: {
+        title: 'Formulation Classifier | Nyaaya AI — IP-SAKTI',
+        desc: 'Classify your Ayurvedic product across Patents, Trade Secrets, GI, and ASU regulatory regimes with actionable next steps.',
+      },
+      tkdl: {
+        title: 'TKDL Prior Art Search | Nyaaya AI — IP-SAKTI',
+        desc: 'Cross-reference traditional herbal formulations and formulations against the Traditional Knowledge Digital Library prior art citations.',
+      },
+      abs: {
+        title: 'ABS Compliance Wizard | Nyaaya AI — IP-SAKTI',
+        desc: 'Navigate Access and Benefit Sharing obligations under India’s Biological Diversity Act for wild-harvested herbs and medicinal plants.',
+      },
+      escalate: {
+        title: 'Legal Escalation & Attorney Support | Nyaaya AI — IP-SAKTI',
+        desc: 'Escalate complex Ayurvedic IP, patent prosecution, or ABS disputes directly to specialized IP attorneys and regulatory counsel.',
+      },
+      profile: {
+        title: 'Workspace Profile & Settings | Nyaaya AI — IP-SAKTI',
+        desc: 'Manage your personal profile, organization workspaces, team members, and enterprise preferences on Nyaaya AI.',
+      },
+    }
+
+    const current = routeMeta[mode] || {
+      title: 'Nyaaya AI — IP-SAKTI | Dashboard',
+      desc: 'AI-powered legal intelligence platform for Ayurveda, TKDL, and Biological Diversity Act compliance.',
+    }
+
+    document.title = current.title
+
+    let metaDesc = document.querySelector('meta[name="description"]')
+    if (!metaDesc) {
+      metaDesc = document.createElement('meta')
+      metaDesc.setAttribute('name', 'description')
+      document.head.appendChild(metaDesc)
+    }
+    metaDesc.setAttribute('content', current.desc)
+  }, [mode])
+
   const [authChecked, setAuthChecked] = useState(false)
   const [language, setLanguage] = useState('en')
   const [jurisdiction, setJurisdiction] = useState('india')

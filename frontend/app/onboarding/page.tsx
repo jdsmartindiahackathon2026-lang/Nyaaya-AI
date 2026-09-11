@@ -137,6 +137,20 @@ export default function OnboardingPage() {
   const [hoveredLang, setHoveredLang] = useState<Lang | null>(null)
   const [loading, setLoading] = useState(false)
 
+  useEffect(() => {
+    document.title = 'Get Started & Onboarding | Nyaaya AI — IP-SAKTI'
+    let metaDesc = document.querySelector('meta[name="description"]')
+    if (!metaDesc) {
+      metaDesc = document.createElement('meta')
+      metaDesc.setAttribute('name', 'description')
+      document.head.appendChild(metaDesc)
+    }
+    metaDesc.setAttribute(
+      'content',
+      'Personalise your Nyaaya AI legal intelligence workflow for practitioners, startups, researchers, and cultivators.'
+    )
+  }, [])
+
   // ── Screen 4 CTA: auth + persist ─────────────────────────────────────────
   async function finish() {
     if (loading) return
