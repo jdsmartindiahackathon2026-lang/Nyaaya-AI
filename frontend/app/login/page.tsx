@@ -108,6 +108,25 @@ function LoginPage() {
   const [mx, setMx] = useState(0)
   const [my, setMy] = useState(0)
 
+  useEffect(() => {
+    document.title = mode === 'signup'
+      ? 'Create an Account | Nyaaya AI — IP-SAKTI'
+      : 'Sign In | Nyaaya AI — IP-SAKTI'
+
+    let metaDesc = document.querySelector('meta[name="description"]')
+    if (!metaDesc) {
+      metaDesc = document.createElement('meta')
+      metaDesc.setAttribute('name', 'description')
+      document.head.appendChild(metaDesc)
+    }
+    metaDesc.setAttribute(
+      'content',
+      mode === 'signup'
+        ? 'Sign up for Nyaaya AI — IP-SAKTI to access Ayurveda IP intelligence, TKDL prior art examiners, and Biological Diversity Act ABS compliance tools.'
+        : 'Sign in to Nyaaya AI — IP-SAKTI to manage your patent workflows, herbal formulation clearances, and team workspaces.'
+    )
+  }, [mode])
+
   // Build particle sets once
   const leaves = useMemo(makeLeaves, [])
   const fireflies = useMemo(makeFireflies, [])
