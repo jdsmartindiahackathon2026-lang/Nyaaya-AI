@@ -4,6 +4,8 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { MAX_TEXT_FIELD_LEN, isValidEmail } from '../../../lib/validators'
 
+import { useWorkspace } from '../../../lib/workspaceContext'
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface UserRow {
@@ -78,7 +80,7 @@ const TABS = [
 
 type TabId = typeof TABS[number][0]
 
-const SOON_TABS = new Set<string>(['team', 'api', 'referral'])
+const SOON_TABS = new Set<string>(['api', 'referral'])
 
 // ─── Particle data (stable across renders) ───────────────────────────────────
 
@@ -233,11 +235,11 @@ function ButtonRow({ label, desc, buttonLabel, onClick, variant = 'default', dis
   variant?: 'default' | 'primary' | 'danger'; disabled?: boolean
 }) {
   const styles = {
-    default: { bg: 'transparent', color: '#b7d4c5', border: '#2c5040' },
-    primary: { bg: '#1f5f4b', color: '#eafaf0', border: '#1f5f4b' },
-    danger: { bg: 'rgba(226,54,54,0.12)', color: '#f2a3a3', border: 'rgba(226,54,54,0.5)' },
+    default: { bg: 'rgba(28,74,55,0.4)', color: '#a8ecc9', border: '#3a6c53' },
+    primary: { bg: '#1f5f4b', color: '#eafaf0', border: '#5ac9a8' },
+    danger: { bg: 'rgba(226,54,54,0.18)', color: '#f2a3a3', border: 'rgba(226,54,54,0.6)' },
   }
-  const st = disabled ? { bg: 'transparent', color: '#5c6f66', border: '#274238' } : styles[variant]
+  const st = disabled ? { bg: 'rgba(20,35,28,0.4)', color: '#688679', border: '#274238' } : styles[variant]
   return (
     <RowDivider>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, padding: '12px 0' }}>
@@ -247,7 +249,20 @@ function ButtonRow({ label, desc, buttonLabel, onClick, variant = 'default', dis
         </div>
         <button
           type="button" onClick={disabled ? undefined : onClick}
-          style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${st.border}`, background: st.bg, color: st.color, fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13, fontWeight: 500, cursor: disabled ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}
+          style={{
+            padding: '9px 18px',
+            borderRadius: 999,
+            border: `1px solid ${st.border}`,
+            background: st.bg,
+            color: st.color,
+            fontFamily: "'IBM Plex Sans', sans-serif",
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: disabled ? 'not-allowed' : 'pointer',
+            whiteSpace: 'nowrap',
+            boxShadow: disabled ? 'none' : '0 2px 8px rgba(0,0,0,0.25)',
+            transition: 'all 120ms',
+          }}
         >
           {buttonLabel}
         </button>
@@ -349,7 +364,20 @@ function HoverButton({ children, onClick, style, disabled }: { children: React.R
     <button
       type="button" onClick={disabled ? undefined : onClick}
       onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-      style={{ padding: '6px 12px', borderRadius: 999, border: `1px solid ${hov && !disabled ? '#3a6c53' : '#2c5040'}`, background: hov && !disabled ? '#163727' : 'transparent', color: disabled ? '#5c6f66' : '#b7d4c5', fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, cursor: disabled ? 'not-allowed' : 'pointer', ...style }}
+      style={{
+        padding: '7px 15px',
+        borderRadius: 999,
+        border: `1px solid ${disabled ? '#274238' : hov ? '#5ac9a8' : '#3a6c53'}`,
+        background: disabled ? 'rgba(20,35,28,0.4)' : hov ? 'rgba(90,201,168,0.22)' : 'rgba(28,74,55,0.45)',
+        color: disabled ? '#688679' : hov ? '#f2f6f3' : '#a8ecc9',
+        fontFamily: "'IBM Plex Sans', sans-serif",
+        fontSize: 12.5,
+        fontWeight: 500,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        boxShadow: disabled ? 'none' : '0 2px 6px rgba(0,0,0,0.2)',
+        transition: 'all 120ms',
+        ...style
+      }}
     >{children}</button>
   )
 }
@@ -513,6 +541,311 @@ function ChangeEmailWidget() {
         {msg && <div style={{ fontSize: 12, color: '#7fd9ae' }}>{msg}</div>}
       </div>
     </RowDivider>
+  )
+}
+
+// ─── Team & Workspace Component ──────────────────────────────────────────────
+
+interface OrgMemberRow {
+  id: string
+  role: string
+  joined_at: string
+  user: { full_name: string | null; email?: string }
+}
+
+interface OrgInviteRow {
+  id: string
+  email: string
+  role: string
+  token: string
+  expires_at: string
+}
+
+function TeamWorkspaceView() {
+  const { activeOrg, refreshWorkspaces } = useWorkspace()
+  const [members, setMembers] = useState<OrgMemberRow[]>([])
+  const [invites, setInvites] = useState<OrgInviteRow[]>([])
+  const [loadingData, setLoadingData] = useState(false)
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteRole, setInviteRole] = useState<'member' | 'admin' | 'viewer'>('member')
+  const [inviting, setInviting] = useState(false)
+  const [inviteResult, setInviteResult] = useState<{ link: string; expiresAt: string } | null>(null)
+  const [errorMsg, setErrorMsg] = useState('')
+
+  const loadOrgDetails = useCallback(async () => {
+    if (!activeOrg?.id) return
+    setLoadingData(true)
+    setErrorMsg('')
+    try {
+      // 1. Members
+      const { data: mems } = await supabase
+        .from('organization_members')
+        .select('id, role, joined_at, user:user_id ( full_name )')
+        .eq('org_id', activeOrg.id)
+
+      if (mems) {
+        // @ts-expect-error joined user
+        setMembers(mems as OrgMemberRow[])
+      }
+
+      // 2. Pending invites (valid within 24 hours)
+      const { data: invs } = await supabase
+        .from('organization_invites')
+        .select('id, email, role, token, expires_at')
+        .eq('org_id', activeOrg.id)
+        .is('accepted_at', null)
+        .gt('expires_at', new Date().toISOString())
+
+      if (invs) {
+        setInvites(invs as OrgInviteRow[])
+      }
+    } catch (err) {
+      console.error('Error loading team data:', err)
+    } finally {
+      setLoadingData(false)
+    }
+  }, [activeOrg?.id])
+
+  useEffect(() => {
+    loadOrgDetails()
+  }, [loadOrgDetails])
+
+  async function handleSendInvite(e: React.FormEvent) {
+    e.preventDefault()
+    if (!inviteEmail.trim() || !activeOrg?.id || inviting) return
+    setInviting(true)
+    setErrorMsg('')
+    setInviteResult(null)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      const { data: userRow } = await supabase.from('users').select('id').eq('auth_id', user?.id || '').maybeSingle()
+
+      const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
+      const expires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+
+      const { data, error } = await supabase
+        .from('organization_invites')
+        .insert({
+          org_id: activeOrg.id,
+          email: inviteEmail.trim().toLowerCase(),
+          role: inviteRole,
+          token,
+          invited_by: userRow?.id || null,
+          expires_at: expires,
+        })
+        .select('token, expires_at')
+        .single()
+
+      if (error) throw error
+
+      const link = `${typeof window !== 'undefined' ? window.location.origin : ''}/login?invite=${data.token}`
+      setInviteResult({ link, expiresAt: data.expires_at })
+      setInviteEmail('')
+      loadOrgDetails()
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : 'Could not create invite.')
+    } finally {
+      setInviting(false)
+    }
+  }
+
+  const isOwnerOrAdmin = activeOrg?.role === 'owner' || activeOrg?.role === 'admin'
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: '4px 0' }}>
+      {/* Workspace Header Overview */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14,
+        padding: '16px 20px', borderRadius: 12, border: '1px solid var(--border-hi)',
+        background: 'rgba(28,74,55,0.25)',
+      }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontFamily: "'Source Serif 4', Georgia, serif", fontSize: 19, fontWeight: 700, color: 'var(--text-hi)' }}>
+              {activeOrg?.name || 'Workspace'}
+            </span>
+            <span style={{
+              fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em',
+              padding: '3px 8px', borderRadius: 999, background: 'rgba(90,201,168,0.18)', color: 'var(--accent)',
+              border: '1px solid var(--border-hi)',
+            }}>
+              {activeOrg?.billing_tier || 'free'} tier
+            </span>
+          </div>
+          <div style={{ fontSize: 12.5, color: 'var(--text-lo)' }}>
+            Workspace ID: <span className="mono" style={{ color: 'var(--mono-val)' }}>{activeOrg?.slug}</span> · Your Role: <strong style={{ color: 'var(--accent)', textTransform: 'capitalize' }}>{activeOrg?.role}</strong>
+          </div>
+        </div>
+      </div>
+
+      {/* Invite Member Section (Owner/Admin only) */}
+      {isOwnerOrAdmin && (
+        <div style={{
+          padding: '18px 20px', borderRadius: 12, border: '1px solid var(--border)',
+          background: 'var(--bg-card)', display: 'flex', flexDirection: 'column', gap: 14,
+        }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-hi)' }}>
+              Invite a Colleague (24-Hour Link)
+            </div>
+            <div style={{ fontSize: 12.5, color: 'var(--text-dim)' }}>
+              Invite formulators, co-founders, or counsel to collaborate on this workspace. Invite links securely expire in 24 hours.
+            </div>
+          </div>
+
+          <form onSubmit={handleSendInvite} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input
+              type="email"
+              required
+              value={inviteEmail}
+              onChange={e => setInviteEmail(e.target.value)}
+              placeholder="colleague@firm.com"
+              style={{
+                flex: '1 1 240px',
+                padding: '9px 14px', borderRadius: 8, border: '1px solid var(--border-hi)',
+                background: 'var(--bg-input)', color: 'var(--text)', fontSize: 13.5, outline: 'none',
+              }}
+            />
+            <select
+              value={inviteRole}
+              onChange={e => setInviteRole(e.target.value as 'member' | 'admin' | 'viewer')}
+              style={{
+                padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border-hi)',
+                background: 'var(--bg-input)', color: 'var(--text)', fontSize: 13, cursor: 'pointer',
+              }}
+            >
+              <option value="member">Member (Full Access)</option>
+              <option value="admin">Admin (Manage Team)</option>
+              <option value="viewer">Viewer (Read Only)</option>
+            </select>
+            <button
+              type="submit"
+              disabled={inviting || !inviteEmail.trim()}
+              className="send-btn"
+              style={{ padding: '9px 20px', fontSize: 13, boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }}
+            >
+              {inviting ? 'Generating…' : 'Generate invite link'}
+            </button>
+          </form>
+
+          {errorMsg && (
+            <div style={{ fontSize: 12.5, color: '#e8a0a0' }}>{errorMsg}</div>
+          )}
+
+          {inviteResult && (
+            <div style={{
+              padding: '12px 14px', borderRadius: 8, border: '1px solid var(--accent-dim)',
+              background: 'rgba(90,201,168,0.08)', display: 'flex', flexDirection: 'column', gap: 6,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>
+                  ✓ Invite link created (valid for 24 hours)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => { try { navigator.clipboard.writeText(inviteResult.link) } catch {} }}
+                  style={{
+                    padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border-hi)',
+                    background: 'var(--hover-bg)', color: 'var(--accent)', fontSize: 11.5, cursor: 'pointer',
+                  }}
+                >
+                  Copy link
+                </button>
+              </div>
+              <div className="mono" style={{ fontSize: 11.5, color: 'var(--text)', wordBreak: 'break-all', userSelect: 'all' }}>
+                {inviteResult.link}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Active Team Members */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-hi)' }}>
+          Active Members ({members.length})
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {members.map(m => (
+            <div
+              key={m.id}
+              style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '12px 16px', borderRadius: 8, border: '1px solid var(--border)',
+                background: 'var(--bg-card)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{
+                  width: 32, height: 32, borderRadius: '50%', background: 'rgba(28,74,55,0.6)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 13, fontWeight: 600, color: 'var(--accent)', border: '1px solid var(--border-hi)',
+                }}>
+                  {(m.user?.full_name || 'U').charAt(0).toUpperCase()}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontSize: 13.5, color: 'var(--text-hi)', fontWeight: 500 }}>
+                    {m.user?.full_name || 'Colleague'}
+                  </span>
+                  <span style={{ fontSize: 11.5, color: 'var(--text-dim)' }}>
+                    Joined {new Date(m.joined_at).toLocaleDateString()}
+                  </span>
+                </div>
+              </div>
+              <span style={{
+                fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, textTransform: 'uppercase',
+                padding: '3px 8px', borderRadius: 999, border: '1px solid var(--border)',
+                color: m.role === 'owner' ? '#f2f6f3' : 'var(--text-lo)',
+                background: m.role === 'owner' ? 'rgba(28,74,55,0.8)' : 'transparent',
+              }}>
+                {m.role}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Pending Invites */}
+      {invites.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-hi)' }}>
+            Pending 24-Hour Invitations ({invites.length})
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {invites.map(inv => {
+              const link = `${typeof window !== 'undefined' ? window.location.origin : ''}/login?invite=${inv.token}`
+              return (
+                <div
+                  key={inv.id}
+                  style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '10px 14px', borderRadius: 8, border: '1px dashed var(--border-hi)',
+                    background: 'rgba(6,14,12,0.4)',
+                  }}
+                >
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <span style={{ fontSize: 13, color: 'var(--text)' }}>{inv.email}</span>
+                    <span style={{ fontSize: 11, color: '#c9aa5a' }}>
+                      Expires {new Date(inv.expires_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { try { navigator.clipboard.writeText(link) } catch {} }}
+                    style={{
+                      padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border-hi)',
+                      background: 'transparent', color: 'var(--accent)', fontSize: 11.5, cursor: 'pointer',
+                    }}
+                  >
+                    Copy invite
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -770,15 +1103,7 @@ function TabContent(props: TabContentProps) {
       )
 
     case 'team':
-      return (
-        <>
-          <NoteRow text="Team workspaces are planned for after the hackathon." tone="soon" />
-          <ButtonRow label="Invite colleagues" desc="Share conversation history within your firm — coming soon" buttonLabel="Invite" disabled />
-          <ReadonlyRow label="Roles" value="Admin / Member / Read-only" />
-          <ReadonlyRow label="Shared saved answers" value="Not enabled yet" />
-          <ReadonlyRow label="Billing owner" value="—" />
-        </>
-      )
+      return <TeamWorkspaceView />
 
     case 'api':
       return (
