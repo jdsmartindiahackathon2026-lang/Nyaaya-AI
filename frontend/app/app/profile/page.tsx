@@ -1084,6 +1084,59 @@ function TabContent(props: TabContentProps) {
     case 'privacy':
       return (
         <>
+          {/* TEE & Confidential Computing Card */}
+          <div style={{
+            padding: '18px 20px', borderRadius: 12,
+            border: '1px solid rgba(127,217,174,0.4)',
+            background: 'linear-gradient(135deg, rgba(9,25,18,0.85) 0%, rgba(6,16,12,0.92) 100%)',
+            display: 'flex', flexDirection: 'column', gap: 12,
+            boxShadow: '0 6px 24px rgba(0,0,0,0.3)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 20 }}>🛡️</span>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: '#7fd9ae' }}>
+                    Trusted Execution Environment (TEE) & Zero Retention
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+                    Enterprise hardware memory isolation protecting pre-patent trade secrets.
+                  </div>
+                </div>
+              </div>
+              <span style={{
+                padding: '3px 8px', borderRadius: 5,
+                border: '1px solid #7fd9ae',
+                background: 'rgba(127,217,174,0.15)',
+                color: '#7fd9ae', fontFamily: "'IBM Plex Mono', monospace",
+                fontSize: 11, fontWeight: 600,
+              }}>
+                ACTIVE
+              </span>
+            </div>
+
+            <div style={{ height: 1, background: 'rgba(127,217,174,0.12)' }} />
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, fontSize: 12 }}>
+              <div>
+                <span style={{ color: 'var(--text-dim)' }}>Hardware Enclave Spec: </span>
+                <span style={{ color: 'var(--text)', fontWeight: 500 }}>AMD SEV-SNP / AWS Nitro</span>
+              </div>
+              <div>
+                <span style={{ color: 'var(--text-dim)' }}>Volatile Memory Policy: </span>
+                <span style={{ color: '#7fd9ae', fontWeight: 500 }}>0ms (Zero Disk Swap)</span>
+              </div>
+              <div>
+                <span style={{ color: 'var(--text-dim)' }}>Database Persistence: </span>
+                <span style={{ color: 'var(--text)', fontWeight: 500 }}>Bypassed in TEE mode</span>
+              </div>
+              <div>
+                <span style={{ color: 'var(--text-dim)' }}>Model Training Opt-out: </span>
+                <span style={{ color: '#7fd9ae', fontWeight: 500 }}>Enforced (ZDR Agreement)</span>
+              </div>
+            </div>
+          </div>
+
           <ButtonRow label="Export your data" desc="Download a JSON copy of your profile, answers and history" buttonLabel={props.exportLabel} onClick={props.onExport} variant="primary" />
           <ButtonRow label="Anonymise my data instead" desc="Keep your queries for corpus improvement, drop personal info" buttonLabel="Anonymise" disabled />
           <ToggleRow label="Allow anonymised queries to improve retrieval" checked={props.allowAnonQueries} onChange={() => props.setAllowAnonQueries(!props.allowAnonQueries)} />

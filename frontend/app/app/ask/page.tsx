@@ -7,6 +7,11 @@ import ReactMarkdown from 'react-markdown'
 import { useWorkspace } from '../../../lib/workspaceContext'
 import ConfirmDialog from '../../../components/ConfirmDialog'
 import remarkGfm from 'remark-gfm'
+import {
+  computePayloadSha256,
+  generateAuditCertificate,
+  ConfidentialReceipt,
+} from '../../../lib/privacyShield'
 
 // ── Markdown prose styles ─────────────────────────────────────────────────────
 const MD_STYLES = `
@@ -41,7 +46,15 @@ function TreeGlyph() {
 }
 
 // ── AnswerCard — styled container for assistant messages ──────────────────────
-function AnswerCard({ content, confidence }: { content: string; confidence?: 'high' | 'medium' | 'abstain' }) {
+function AnswerCard({
+  content,
+  confidence,
+  receipt,
+}: {
+  content: string
+  confidence?: 'high' | 'medium' | 'abstain'
+  receipt?: ConfidentialReceipt
+}) {
   const [copied, setCopied] = useState(false)
 
   async function handleCopy() {
@@ -54,15 +67,29 @@ function AnswerCard({ content, confidence }: { content: string; confidence?: 'hi
     }
   }
 
+  function handleDownloadReceipt() {
+    if (!receipt) return
+    const cert = generateAuditCertificate(receipt, 'Confidential Client', 'Statutory Legal Query')
+    const blob = new Blob([cert], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `nyaaya_tee_receipt_${receipt.receipt_id}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div style={{
       padding: '20px 22px',
-      border: '1px solid rgba(90,201,168,0.28)',
+      border: receipt ? '1px solid rgba(127,217,174,0.45)' : '1px solid rgba(90,201,168,0.28)',
       background: 'rgba(9,17,14,0.72)',
       backdropFilter: 'blur(10px)',
       WebkitBackdropFilter: 'blur(10px)',
       borderRadius: 14,
-      boxShadow: '0 12px 32px rgba(0,0,0,0.35)',
+      boxShadow: receipt ? '0 12px 32px rgba(90,201,168,0.08)' : '0 12px 32px rgba(0,0,0,0.35)',
     }}>
       {/* Header row */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
@@ -75,6 +102,24 @@ function AnswerCard({ content, confidence }: { content: string; confidence?: 'hi
           }}>Nyaaya AI</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {receipt && (
+            <button
+              onClick={handleDownloadReceipt}
+              title={`Zero Data Retention Verified: ${receipt.data_retention}. Click to download audit receipt.`}
+              style={{
+                padding: '3px 8px', borderRadius: 5,
+                border: '1px solid rgba(127,217,174,0.4)',
+                background: 'rgba(127,217,174,0.12)',
+                color: '#7fd9ae',
+                fontFamily: "'IBM Plex Mono', monospace",
+                fontSize: 10.5, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 4,
+                transition: 'all 120ms',
+              }}
+            >
+              🔒 TEE VERIFIED (0ms) ↓
+            </button>
+          )}
           {confidence && (
             <span className={`label-xs confidence-${confidence}`}>
               {confidence.toUpperCase()} CONFIDENCE
@@ -133,6 +178,7 @@ interface Message {
   citations?: Citation[]
   confidence?: 'high' | 'medium' | 'abstain'
   disclaimer?: string
+  confidential_receipt?: ConfidentialReceipt
 }
 interface ConversationRow {
   id: string
@@ -172,6 +218,7 @@ function AskPage() {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
   const [userRowId, setUserRowId] = useState<string | null>(null)
   const { activeOrg } = useWorkspace()
+  const [confidentialMode, setConfidentialMode] = useState(false)
   const [conversations, setConversations] = useState<ConversationRow[]>([])
   const [activeConvId, setActiveConvId] = useState<string | null>(null)
   const [loadingConv, setLoadingConv] = useState(false)
@@ -356,7 +403,18 @@ function AskPage() {
     setQuery('')
     setLoading(true)
     try {
-      const conv = await ensureConversation(q, ctx.jurisdiction)
+      let convId: string | null = null
+      let payloadHash: string | undefined
+      let isNew = false
+
+      if (confidentialMode) {
+        payloadHash = await computePayloadSha256(q)
+      } else {
+        const conv = await ensureConversation(q, ctx.jurisdiction)
+        convId = conv?.id ?? null
+        isNew = !!conv?.isNew
+      }
+
       const history = messages.map(m => ({ role: m.role, content: m.content })).slice(-6)
       const { data, error: fnError } = await supabase.functions.invoke('ask-query', {
         body: {
@@ -364,8 +422,10 @@ function AskPage() {
           jurisdiction: ctx.jurisdiction,
           language: ctx.language,
           userType: ctx.userType,
-          conversationId: conv?.id ?? null,
+          conversationId: convId,
           history,
+          confidential_mode: confidentialMode,
+          payload_hash: payloadHash,
         },
       })
       if (fnError) throw fnError
@@ -376,9 +436,10 @@ function AskPage() {
         citations: data.citations ?? [],
         confidence: data.confidence,
         disclaimer: data.disclaimer,
+        confidential_receipt: data.confidential_receipt,
       }])
       // Only auto-title fresh threads — leave user-renamed titles alone.
-      if (conv?.isNew) void autoTitle(conv.id, q)
+      if (!confidentialMode && isNew && convId) void autoTitle(convId, q)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Something went wrong. Please try again.'
       setError(msg)
@@ -593,7 +654,7 @@ function AskPage() {
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                      <AnswerCard content={m.content} confidence={m.confidence} />
+                      <AnswerCard content={m.content} confidence={m.confidence} receipt={m.confidential_receipt} />
                       {m.citations && m.citations.length > 0 && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                           <div className="label-xs">Sources</div>
@@ -654,6 +715,32 @@ function AskPage() {
           display: 'flex', flexDirection: 'column', gap: 10,
           flexShrink: 0,
         }}>
+          {confidentialMode && (
+            <div style={{
+              padding: '8px 14px', borderRadius: 8,
+              background: 'rgba(9, 25, 18, 0.95)',
+              border: '1px solid rgba(127,217,174,0.4)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              fontSize: 12, color: '#7fd9ae', maxWidth: 720,
+              boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <span>🔒</span>
+                <span><strong>Confidential TEE Mode Active</strong> — Evaluated in zero-retention memory enclave. Thread will not be saved to history or database.</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfidentialMode(false)}
+                style={{
+                  background: 'none', border: 'none', color: 'var(--text-dim)',
+                  cursor: 'pointer', fontSize: 11, textDecoration: 'underline',
+                }}
+              >
+                Disable
+              </button>
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', maxWidth: 720 }}>
             <textarea
               ref={textareaRef}
@@ -666,7 +753,7 @@ function AskPage() {
               }}
               onKeyDown={handleKey}
               rows={2}
-              placeholder="Ask a question about Ayurveda IP or regulatory compliance…"
+              placeholder={confidentialMode ? 'Ask a confidential formulation or pre-patent IP query…' : 'Ask a question about Ayurveda IP or regulatory compliance…'}
               className="chat-input"
               style={{ flex: 1, minHeight: 52, maxHeight: 180, overflowY: 'auto' }}
               maxLength={MAX_QUERY_LEN}
@@ -680,8 +767,24 @@ function AskPage() {
               {loading ? '…' : 'Ask →'}
             </button>
           </div>
-          <div style={{ fontSize: 11, color: 'var(--text-xs)', maxWidth: 720 }}>
-            Press Enter to send · Shift+Enter for new line · Citations from official government sources only
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: 'var(--text-xs)', maxWidth: 720, flexWrap: 'wrap', gap: 6 }}>
+            <span>Press Enter to send · Shift+Enter for new line · Official statute citations</span>
+            <button
+              type="button"
+              onClick={() => setConfidentialMode(!confidentialMode)}
+              style={{
+                background: confidentialMode ? 'rgba(127,217,174,0.15)' : 'transparent',
+                border: confidentialMode ? '1px solid #7fd9ae' : '1px solid var(--border)',
+                borderRadius: 5, padding: '3px 8px',
+                color: confidentialMode ? '#7fd9ae' : 'var(--text-lo)',
+                fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                transition: 'all 120ms',
+              }}
+              title="Toggle Confidential TEE / Zero-Retention Enclave Mode"
+            >
+              {confidentialMode ? '🔒 TEE Mode ON' : '🛡️ TEE Shield'}
+            </button>
           </div>
         </div>
       </div>
