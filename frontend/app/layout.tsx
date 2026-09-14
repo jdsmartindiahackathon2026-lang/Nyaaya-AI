@@ -8,6 +8,7 @@ const ibmPlexMono = IBM_Plex_Mono({ subsets: ['latin'], weight: ['400', '500'], 
 const sourceSerif = Source_Serif_4({ subsets: ['latin'], weight: ['400', '600', '700'], variable: '--font-serif' })
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'https://nyaaya-ai-six.vercel.app'),
   title: {
     default: 'Nyaaya AI — IP-SAKTI | Ayurvedic IP, Patents & ABS Intelligence',
     template: '%s | Nyaaya AI — IP-SAKTI',
@@ -27,6 +28,17 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: 'Nyaaya AI Team' }],
   creator: 'Nyaaya AI',
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-video-preview': -1,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+    },
+  },
   openGraph: {
     type: 'website',
     locale: 'en_IN',
