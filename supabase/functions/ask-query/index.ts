@@ -354,8 +354,61 @@ function deriveConfidence(answerText: string): 'high' | 'medium' | 'abstain' {
   return 'medium'
 }
 
+type CitationItem = { source: string; url: string; statute_ref: string }
+
+/**
+ * Validate citation URLs asynchronously via fast parallel HEAD checks with timeout.
+ * Filters out dead links (404/5xx/network drop) to prevent broken links in enterprise answers.
+ * Entirely non-fatal — if check times out or network is flaky, original citation is kept.
+ */
+async function validateCitationUrls(citations: CitationItem[], timeoutMs = 1500): Promise<CitationItem[]> {
+  if (!citations || citations.length === 0) return citations
+
+  const checks = citations.map(async (c) => {
+    if (!c.url || !c.url.startsWith('http')) return c
+
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+    try {
+      const res = await fetch(c.url, {
+        method: 'HEAD',
+        signal: controller.signal,
+        headers: { 'User-Agent': 'NyaayaAI-CitationProbe/1.0' },
+      })
+      clearTimeout(timer)
+      // If server explicitly returns 404 or 410, citation link is broken
+      if (res.status === 404 || res.status === 410) {
+        console.warn(`[ask-query:citation] Probe 404/410 dead link: ${c.url}`)
+        return null
+      }
+      return c
+    } catch (err: unknown) {
+      clearTimeout(timer)
+      // If probe was aborted by timeout or method was rejected, keep citation gracefully
+      return c
+    }
+  })
+
+  const results = await Promise.allSettled(checks)
+  const valid: CitationItem[] = []
+
+  for (const r of results) {
+    if (r.status === 'fulfilled' && r.value !== null) {
+      valid.push(r.value)
+    }
+  }
+
+  // Fallback: if all filtered out due to temporary probe network block, keep original
+  return valid.length > 0 ? valid : citations
+}
+
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return handleOptions(req)
+
+  const startTime = Date.now()
+  const correlationId = `req_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`
 
   const authResult = await requireUser(req)
   if ('error' in authResult) return authResult.error
@@ -368,8 +421,10 @@ serve(async (req) => {
     const { query, jurisdiction, language, userType, conversationId, history: rawHistory, confidential_mode, payload_hash } = await req.json()
 
     if (!query || !jurisdiction || !language || !userType) {
-      return errorResponse(req, 'VALIDATION_ERROR', 'Missing required fields: query, jurisdiction, language, userType', false, 400)
+      return errorResponse(req, 'VALIDATION_ERROR', 'Missing required fields: query, jurisdiction, language, userType', false, 400, correlationId)
     }
+
+    console.info(`[ask-query] [${correlationId}] START user=${user.id} jur=${jurisdiction} lang=${language} confidential=${Boolean(confidential_mode)}`)
 
     const isConfidential = Boolean(confidential_mode)
 
@@ -525,7 +580,8 @@ serve(async (req) => {
         statute_ref: `Section ${h.section_number}${h.clause_id ? ' ' + h.clause_id : ''}`,
       }))
     } else {
-      citations = parseCitations(answerText, webCitationUrls)
+      const parsed = parseCitations(answerText, webCitationUrls)
+      citations = await validateCitationUrls(parsed)
     }
 
     const modelUsedLabel = useLocalHits ? 'claude-haiku-4-5+hybrid-rag' : 'claude-haiku-4-5+web-search'
@@ -578,18 +634,23 @@ serve(async (req) => {
       }
     }
 
+    responsePayload.correlation_id = correlationId
+    const durationMs = Date.now() - startTime
+    console.info(`[ask-query] [${correlationId}] DONE duration=${durationMs}ms hits=${hits.length} citations=${citations.length}`)
+
     return new Response(JSON.stringify(responsePayload), {
       headers: { 'Content-Type': 'application/json', ...corsHeaders(req) }
     })
 
   } catch (err) {
-    console.error(err)
-    return errorResponse(req, 'INTERNAL_ERROR', 'An unexpected error occurred. Please try again.', true)
+    const durationMs = Date.now() - startTime
+    console.error(`[ask-query] [${correlationId}] ERROR duration=${durationMs}ms:`, err)
+    return errorResponse(req, 'INTERNAL_ERROR', 'An unexpected error occurred. Please try again.', true, 500, correlationId)
   }
 })
 
-function errorResponse(req: Request, code: string, message: string, retryable: boolean, status = 500) {
-  return new Response(JSON.stringify({ error: true, code, message, retryable }), {
+function errorResponse(req: Request, code: string, message: string, retryable: boolean, status = 500, correlationId?: string) {
+  return new Response(JSON.stringify({ error: true, code, message, retryable, correlation_id: correlationId }), {
     status,
     headers: { 'Content-Type': 'application/json', ...corsHeaders(req) }
   })

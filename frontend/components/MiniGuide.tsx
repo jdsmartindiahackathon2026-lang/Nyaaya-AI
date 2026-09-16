@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { supabase } from '../lib/supabase'
+import ErrorBoundary from './ErrorBoundary'
 
 interface Props {
   currentScreen: string
@@ -411,33 +412,43 @@ export default function MiniGuide({ currentScreen, language }: Props) {
                 }}>
                   {m.role === 'guide' ? (
                     <>
-                      <ReactMarkdown
-                        components={{
-                          a: ({ href, children }) => {
-                            const isInternal = href && href.startsWith('/app/')
-                            return (
-                              <a
-                                href={href}
-                                style={{ color: 'var(--accent)', textDecoration: 'underline' }}
-                                {...(isInternal ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
-                              >
-                                {children}
-                              </a>
-                            )
-                          },
-                          p: ({ children }) => (
-                            <p style={{ margin: 0 }}>{children}</p>
-                          ),
-                          ul: ({ children }) => (
-                            <ul style={{ paddingLeft: 18, margin: '4px 0' }}>{children}</ul>
-                          ),
-                          ol: ({ children }) => (
-                            <ol style={{ paddingLeft: 18, margin: '4px 0' }}>{children}</ol>
-                          ),
-                        }}
+                      <ErrorBoundary
+                        name="MiniGuide"
+                        compact
+                        fallback={
+                          <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, color: 'var(--text)' }}>
+                            {m.text}
+                          </div>
+                        }
                       >
-                        {m.text}
-                      </ReactMarkdown>
+                        <ReactMarkdown
+                          components={{
+                            a: ({ href, children }) => {
+                              const isInternal = href && href.startsWith('/app/')
+                              return (
+                                <a
+                                  href={href}
+                                  style={{ color: 'var(--accent)', textDecoration: 'underline' }}
+                                  {...(isInternal ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
+                                >
+                                  {children}
+                                </a>
+                              )
+                            },
+                            p: ({ children }) => (
+                              <p style={{ margin: 0 }}>{children}</p>
+                            ),
+                            ul: ({ children }) => (
+                              <ul style={{ paddingLeft: 18, margin: '4px 0' }}>{children}</ul>
+                            ),
+                            ol: ({ children }) => (
+                              <ol style={{ paddingLeft: 18, margin: '4px 0' }}>{children}</ol>
+                            ),
+                          }}
+                        >
+                          {m.text}
+                        </ReactMarkdown>
+                      </ErrorBoundary>
                       {/* Retry button for error messages */}
                       {m.retryQuery && (
                         <button
