@@ -7,6 +7,8 @@ import ReactMarkdown from 'react-markdown'
 import { useWorkspace } from '../../../lib/workspaceContext'
 import ConfirmDialog from '../../../components/ConfirmDialog'
 import remarkGfm from 'remark-gfm'
+import ErrorBoundary from '../../../components/ErrorBoundary'
+import { logger } from '../../../lib/logger'
 import {
   computePayloadSha256,
   generateAuditCertificate,
@@ -147,18 +149,27 @@ function AnswerCard({
       <div style={{ height: 1, background: 'rgba(90,201,168,0.12)', marginBottom: 14 }} />
       {/* Markdown body */}
       <div className="md-body">
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          components={{
-            a: ({ href, children }) => (
-              <a href={href} target="_blank" rel="noopener noreferrer">
-                {children}
-              </a>
-            ),
-          }}
+        <ErrorBoundary
+          name="AnswerCard"
+          fallback={
+            <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, color: '#e7ede9', lineHeight: 1.6 }}>
+              {content}
+            </div>
+          }
         >
-          {content}
-        </ReactMarkdown>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              a: ({ href, children }) => (
+                <a href={href} target="_blank" rel="noopener noreferrer">
+                  {children}
+                </a>
+              ),
+            }}
+          >
+            {content}
+          </ReactMarkdown>
+        </ErrorBoundary>
       </div>
     </div>
   )
@@ -441,6 +452,7 @@ function AskPage() {
       // Only auto-title fresh threads — leave user-renamed titles alone.
       if (!confidentialMode && isNew && convId) void autoTitle(convId, q)
     } catch (err: unknown) {
+      logger.error('Failed to submit ask query', err, { queryLength: q.length, confidential: confidentialMode })
       const msg = err instanceof Error ? err.message : 'Something went wrong. Please try again.'
       setError(msg)
       setMessages(m => m.slice(0, -1))
