@@ -40,13 +40,40 @@ function AuthCallback() {
 
     async function routeUser(userId: string) {
       try {
+        const inviteToken = params?.get('invite')
+        if (inviteToken) {
+          try {
+            const { data: invRes } = await supabase.rpc('accept_workspace_invite', { p_token: inviteToken })
+            if (invRes && (invRes as any).success && (invRes as any).org_id) {
+              localStorage.setItem('nyaaya_active_org_id', (invRes as any).org_id)
+            }
+          } catch (invErr) {
+            console.error('Failed to auto-accept invite during callback:', invErr)
+          }
+        }
+
         const { data: profile } = await supabase
-          .from('users').select('id').eq('auth_id', userId).maybeSingle()
+          .from('users').select('id, full_name, avatar_url').eq('auth_id', userId).maybeSingle()
+
+        // Sync Google OAuth metadata to public.users if not present
+        const { data: { user: currentUser } } = await supabase.auth.getUser()
+        if (currentUser?.user_metadata) {
+          const meta = currentUser.user_metadata
+          const fullName = meta.full_name || meta.name || ''
+          const avatarUrl = meta.avatar_url || meta.picture || ''
+          if (profile && (!profile.full_name || !profile.avatar_url) && (fullName || avatarUrl)) {
+            await supabase.from('users').update({
+              ...(fullName && !profile.full_name ? { full_name: fullName } : {}),
+              ...(avatarUrl && !profile.avatar_url ? { avatar_url: avatarUrl } : {}),
+            }).eq('id', profile.id)
+          }
+        }
+
         if (profile) {
           try { localStorage.setItem('nyaaya_onboarded', '1') } catch {}
           router.replace('/app/ask')
         } else {
-          router.replace('/onboarding')
+          router.replace(inviteToken ? `/onboarding?invite=${encodeURIComponent(inviteToken)}` : '/onboarding')
         }
       } catch {
         router.replace('/onboarding')

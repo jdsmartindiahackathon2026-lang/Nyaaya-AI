@@ -829,16 +829,37 @@ function TeamWorkspaceView() {
                       Expires {new Date(inv.expires_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => { try { navigator.clipboard.writeText(link) } catch {} }}
-                    style={{
-                      padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border-hi)',
-                      background: 'transparent', color: 'var(--accent)', fontSize: 11.5, cursor: 'pointer',
-                    }}
-                  >
-                    Copy invite
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => { try { navigator.clipboard.writeText(link) } catch {} }}
+                      style={{
+                        padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border-hi)',
+                        background: 'transparent', color: 'var(--accent)', fontSize: 11.5, cursor: 'pointer',
+                      }}
+                    >
+                      Copy invite
+                    </button>
+                    {isOwnerOrAdmin && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await supabase.rpc('revoke_workspace_invite', { p_invite_id: inv.id })
+                            loadOrgDetails()
+                          } catch (err) {
+                            console.error('Failed to revoke invite:', err)
+                          }
+                        }}
+                        style={{
+                          padding: '5px 10px', borderRadius: 6, border: '1px solid rgba(226,54,54,0.3)',
+                          background: 'rgba(226,54,54,0.08)', color: '#f2a3a3', fontSize: 11.5, cursor: 'pointer',
+                        }}
+                      >
+                        Revoke
+                      </button>
+                    )}
+                  </div>
                 </div>
               )
             })}

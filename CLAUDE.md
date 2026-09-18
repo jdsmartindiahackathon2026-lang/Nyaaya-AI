@@ -32,7 +32,7 @@ If any of these is missing or stale, fixing the doc is in-scope work.
 | Frontend | Next.js 14 (App Router) + Stitch UI + Tailwind CSS |
 | Backend | Supabase Edge Functions (Deno runtime) — never Python/FastAPI |
 | Database | Supabase PostgreSQL + RLS |
-| Auth | Supabase anonymous auth (`signInAnonymously`) |
+| Auth | Supabase Auth (Email/Password + Google OAuth + 24h Team Invites & Multi-Tenancy RLS) |
 | Primary AI | Perplexity API (Sonar model) |
 | Mini Guide AI | Groq API (Llama 3.3-70b) |
 | Translation | Google Translate API |

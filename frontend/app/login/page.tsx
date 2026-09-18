@@ -89,9 +89,21 @@ function passwordStrength(pw: string): number {
   return score
 }
 
+interface InvitePreview {
+  org_id: string
+  org_name: string
+  org_slug: string
+  invited_email: string
+  role: string
+  is_valid: boolean
+  is_expired: boolean
+  is_accepted: boolean
+}
+
 function LoginPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const inviteToken = searchParams?.get('invite') || null
 
   const [mode, setMode] = useState<Mode>('login')
   const [name, setName] = useState('')
@@ -107,6 +119,37 @@ function LoginPage() {
   const [banner, setBanner] = useState<{ tone: 'error' | 'info' | 'success'; text: string } | null>(null)
   const [mx, setMx] = useState(0)
   const [my, setMy] = useState(0)
+
+  // Invite state
+  const [invitePreview, setInvitePreview] = useState<InvitePreview | null>(null)
+  const [loadingInvite, setLoadingInvite] = useState(false)
+  const [existingUser, setExistingUser] = useState<{ id: string; email?: string } | null>(null)
+  const [acceptingExisting, setAcceptingExisting] = useState(false)
+
+  // Load invite preview if token exists
+  useEffect(() => {
+    if (!inviteToken) return
+    let cancelled = false
+    setLoadingInvite(true)
+    ;(async () => {
+      try {
+        const { data, error } = await supabase.rpc('get_invite_details', { p_token: inviteToken })
+        if (cancelled) return
+        if (!error && data && data.length > 0) {
+          const inv = data[0] as InvitePreview
+          setInvitePreview(inv)
+          if (inv.invited_email) {
+            setEmail(inv.invited_email)
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load invite details:', err)
+      } finally {
+        if (!cancelled) setLoadingInvite(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [inviteToken])
 
   useEffect(() => {
     document.title = mode === 'signup'
@@ -136,16 +179,22 @@ function LoginPage() {
 
   const bgRef = useRef<HTMLDivElement | null>(null)
 
-  // If already signed in, bounce out based on profile
+  // If already signed in:
+  // - If invite token present, allow user to accept invitation with current session
+  // - Otherwise route out
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       const { data: { session } } = await supabase.auth.getSession()
       if (cancelled || !session) return
-      await routeAuthedUser(session.user.id)
+      if (inviteToken) {
+        setExistingUser({ id: session.user.id, email: session.user.email })
+      } else {
+        await routeAuthedUser(session.user.id)
+      }
     })()
     return () => { cancelled = true }
-  }, [])
+  }, [inviteToken])
 
   // Surface OAuth-callback errors, if any
   useEffect(() => {
@@ -153,8 +202,42 @@ function LoginPage() {
     if (err) setBanner({ tone: 'error', text: decodeURIComponent(err) })
   }, [searchParams])
 
+  async function handleAcceptExisting() {
+    if (!inviteToken || acceptingExisting) return
+    setAcceptingExisting(true)
+    try {
+      const { data, error } = await supabase.rpc('accept_workspace_invite', { p_token: inviteToken })
+      if (error) throw error
+      const res = data as any
+      if (res && res.success) {
+        if (res.org_id) {
+          try { localStorage.setItem('nyaaya_active_org_id', res.org_id) } catch {}
+        }
+        router.replace('/app/ask')
+      } else {
+        setBanner({ tone: 'error', text: res?.message || 'Could not accept invitation.' })
+      }
+    } catch (err: unknown) {
+      setBanner({ tone: 'error', text: err instanceof Error ? err.message : 'Failed to accept invitation.' })
+    } finally {
+      setAcceptingExisting(false)
+    }
+  }
+
   async function routeAuthedUser(userId: string) {
     try {
+      if (inviteToken) {
+        try {
+          const { data } = await supabase.rpc('accept_workspace_invite', { p_token: inviteToken })
+          const res = data as any
+          if (res && res.success && res.org_id) {
+            localStorage.setItem('nyaaya_active_org_id', res.org_id)
+          }
+        } catch (invErr) {
+          console.error('Invite accept on route error:', invErr)
+        }
+      }
+
       const { data: profile } = await supabase
         .from('users')
         .select('id')
@@ -164,7 +247,7 @@ function LoginPage() {
         try { localStorage.setItem('nyaaya_onboarded', '1') } catch {}
         router.replace('/app/ask')
       } else {
-        router.replace('/onboarding')
+        router.replace(inviteToken ? `/onboarding?invite=${encodeURIComponent(inviteToken)}` : '/onboarding')
       }
     } catch {
       router.replace('/onboarding')
@@ -191,7 +274,9 @@ function LoginPage() {
   async function onGoogle() {
     setBanner(null)
     try {
-      const redirectTo = `${window.location.origin}/auth/callback`
+      const redirectTo = inviteToken
+        ? `${window.location.origin}/auth/callback?invite=${encodeURIComponent(inviteToken)}`
+        : `${window.location.origin}/auth/callback`
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo },
@@ -245,12 +330,15 @@ function LoginPage() {
       }
       setSubmitting(true)
       try {
+        const callbackUrl = inviteToken
+          ? `${window.location.origin}/auth/callback?invite=${encodeURIComponent(inviteToken)}`
+          : `${window.location.origin}/auth/callback`
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
             data: name ? { full_name: name } : undefined,
-            emailRedirectTo: `${window.location.origin}/auth/callback`,
+            emailRedirectTo: callbackUrl,
           },
         })
         if (error) { setBanner({ tone: 'error', text: error.message }); return }
@@ -424,7 +512,76 @@ function LoginPage() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: '100%', padding: 28, borderRadius: 16, border: '1px solid rgba(90,201,168,0.25)', background: 'rgba(8,18,16,0.72)', backdropFilter: 'blur(10px)', boxShadow: '0 20px 60px rgba(0,0,0,0.45)' }}>
+          {/* Invite notification banner */}
+          {invitePreview && (
+            <div style={{
+              width: '100%',
+              padding: '14px 18px',
+              borderRadius: 12,
+              background: invitePreview.is_valid ? 'rgba(28,74,55,0.45)' : 'rgba(196,122,122,0.15)',
+              border: invitePreview.is_valid ? '1px solid rgba(127,217,174,0.4)' : '1px solid rgba(196,122,122,0.4)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+              textAlign: 'center',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                <span>{invitePreview.is_valid ? '🤝' : '⚠️'}</span>
+                <span style={{ fontFamily: "'Source Serif 4', Georgia, serif", fontSize: 16, fontWeight: 700, color: '#f2f6f3' }}>
+                  {invitePreview.is_valid ? 'Workspace Invitation' : 'Invitation Status'}
+                </span>
+              </div>
+              <p style={{ margin: 0, fontSize: 13, color: invitePreview.is_valid ? '#b7d4c5' : '#e8a0a0', lineHeight: 1.5 }}>
+                {invitePreview.is_valid ? (
+                  <>You have been invited to join <strong>{invitePreview.org_name}</strong> as a <span style={{ textTransform: 'capitalize', color: 'var(--accent)' }}>{invitePreview.role}</span>.</>
+                ) : invitePreview.is_expired ? (
+                  <>This 24-hour invitation link has expired. Please ask your workspace admin to generate a fresh link.</>
+                ) : invitePreview.is_accepted ? (
+                  <>This invitation has already been accepted. Sign in to access your workspace.</>
+                ) : (
+                  <>This invitation link is not recognized or has expired.</>
+                )}
+              </p>
+            </div>
+          )}
+
+          {/* If user is already authenticated and viewing an invite link, show 1-click acceptance */}
+          {existingUser && invitePreview && invitePreview.is_valid ? (
+            <div style={{
+              display: 'flex', flexDirection: 'column', gap: 16, width: '100%', padding: 28,
+              borderRadius: 16, border: '1px solid rgba(90,201,168,0.35)', background: 'rgba(8,18,16,0.85)',
+              backdropFilter: 'blur(10px)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)', textAlign: 'center',
+            }}>
+              <div style={{ fontSize: 14, color: '#b7d4c5', lineHeight: 1.6 }}>
+                Signed in as <strong>{existingUser.email}</strong>.
+                <br />
+                Accept invitation to join <strong>{invitePreview.org_name}</strong>?
+              </div>
+              <button
+                type="button"
+                onClick={handleAcceptExisting}
+                disabled={acceptingExisting}
+                className="send-btn"
+                style={{ padding: '12px 20px', fontSize: 14 }}
+              >
+                {acceptingExisting ? 'Joining Workspace…' : `Accept & Join ${invitePreview.org_name}`}
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  await supabase.auth.signOut()
+                  setExistingUser(null)
+                }}
+                style={{
+                  background: 'transparent', border: 'none', color: '#7fb0a0',
+                  fontSize: 12.5, cursor: 'pointer', textDecoration: 'underline',
+                }}
+              >
+                Sign in with a different account
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: '100%', padding: 28, borderRadius: 16, border: '1px solid rgba(90,201,168,0.25)', background: 'rgba(8,18,16,0.72)', backdropFilter: 'blur(10px)', boxShadow: '0 20px 60px rgba(0,0,0,0.45)' }}>
 
             <button type="button" onClick={onGoogle}
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, width: '100%', padding: '12px 0', borderRadius: 10, border: '1px solid #2c5040', background: '#0e1f18', color: '#e7ede9', fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 14, fontWeight: 500, cursor: 'pointer', transition: 'background 180ms, border-color 180ms' }}
@@ -531,6 +688,7 @@ function LoginPage() {
             </button>
 
           </div>
+          )}
 
           <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13, color: '#b7d4c5' }}>
             {isSignup ? 'Already have an account?' : 'New to Nyaaya AI?'}{' '}
