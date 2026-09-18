@@ -18,8 +18,14 @@ interface WorkspaceContextType {
   userOrgs: Organization[]
   loading: boolean
   error: string | null
+  isOwner: boolean
+  isAdmin: boolean
+  canManageTeam: boolean
+  canEdit: boolean
+  isViewer: boolean
   switchWorkspace: (orgId: string) => void
   createWorkspace: (name: string) => Promise<Organization | null>
+  acceptInvite: (token: string) => Promise<{ success: boolean; error?: string; message?: string; org?: Organization }>
   refreshWorkspaces: () => Promise<void>
 }
 
@@ -28,8 +34,14 @@ const WorkspaceContext = createContext<WorkspaceContextType>({
   userOrgs: [],
   loading: true,
   error: null,
+  isOwner: false,
+  isAdmin: false,
+  canManageTeam: false,
+  canEdit: true,
+  isViewer: false,
   switchWorkspace: () => {},
   createWorkspace: async () => null,
+  acceptInvite: async () => ({ success: false, error: 'NOT_INITIALIZED' }),
   refreshWorkspaces: async () => {},
 })
 
@@ -194,6 +206,44 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
+  const acceptInvite = useCallback(async (token: string) => {
+    try {
+      const { data, error } = await supabase.rpc('accept_workspace_invite', { p_token: token })
+      if (error) throw error
+      const res = data as { success?: boolean; error?: string; message?: string; org_id?: string; org_name?: string; org_slug?: string; role?: OrgRole }
+      if (!res.success) {
+        return { success: false, error: res.error, message: res.message }
+      }
+
+      await fetchWorkspaces()
+      if (res.org_id) {
+        switchWorkspace(res.org_id)
+      }
+
+      return {
+        success: true,
+        org: {
+          id: res.org_id || '',
+          name: res.org_name || 'Workspace',
+          slug: res.org_slug || '',
+          billing_tier: 'free' as const,
+          billing_status: 'active' as const,
+          role: (res.role as OrgRole) || 'member',
+        },
+      }
+    } catch (err: unknown) {
+      console.error('Accept invite error:', err)
+      return { success: false, error: 'RPC_ERROR', message: err instanceof Error ? err.message : 'Failed to accept invitation' }
+    }
+  }, [fetchWorkspaces, switchWorkspace])
+
+  const role = activeOrg?.role
+  const isOwner = role === 'owner'
+  const isAdmin = role === 'owner' || role === 'admin'
+  const canManageTeam = isAdmin
+  const canEdit = role !== 'viewer'
+  const isViewer = role === 'viewer'
+
   return (
     <WorkspaceContext.Provider
       value={{
@@ -201,8 +251,14 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         userOrgs,
         loading,
         error,
+        isOwner,
+        isAdmin,
+        canManageTeam,
+        canEdit,
+        isViewer,
         switchWorkspace,
         createWorkspace,
+        acceptInvite,
         refreshWorkspaces: fetchWorkspaces,
       }}
     >

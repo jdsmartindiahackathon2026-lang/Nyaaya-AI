@@ -1,6 +1,6 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 import OnboardingBackground from '../../components/OnboardingBackground'
 
@@ -170,6 +170,19 @@ export default function OnboardingPage() {
           context_answers: answers,
         })
         if (upsertError) throw upsertError
+
+        // If user was invited to a workspace, redeem invite now
+        const inviteParam = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('invite') : null
+        if (inviteParam) {
+          try {
+            const { data: invRes } = await supabase.rpc('accept_workspace_invite', { p_token: inviteParam })
+            if (invRes && (invRes as any).success && (invRes as any).org_id) {
+              localStorage.setItem('nyaaya_active_org_id', (invRes as any).org_id)
+            }
+          } catch (invErr) {
+            console.error('Failed to accept invite in onboarding:', invErr)
+          }
+        }
       }
       try {
         localStorage.setItem('nyaaya_userType', userType)
