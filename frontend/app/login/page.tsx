@@ -2,6 +2,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
+import { validateSignupEmail } from '../../lib/emailGuard'
 
 type Mode = 'login' | 'signup'
 
@@ -314,6 +315,13 @@ function LoginPage() {
     if (!validEmail) { setShowEmailError(true); return }
 
     if (isSignup) {
+      const emailCheck = validateSignupEmail(email)
+      if (!emailCheck.valid) {
+        setShowEmailError(true)
+        setBanner({ tone: 'error', text: emailCheck.error || 'Please enter a valid email address.' })
+        return
+      }
+
       if (password.length < 8) {
         setShowPasswordError(true)
         setTimeout(() => setShowPasswordError(false), 500)
@@ -334,7 +342,7 @@ function LoginPage() {
           ? `${window.location.origin}/auth/callback?invite=${encodeURIComponent(inviteToken)}`
           : `${window.location.origin}/auth/callback`
         const { data, error } = await supabase.auth.signUp({
-          email,
+          email: emailCheck.normalizedEmail,
           password,
           options: {
             data: name ? { full_name: name } : undefined,

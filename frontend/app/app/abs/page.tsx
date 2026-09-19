@@ -247,8 +247,18 @@ export default function ABSPage() {
     if (!result) return
     setPdfStatus('loading')
     try {
+      let tier = 'free'
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+          const { data: u } = await supabase.from('users').select('tier').eq('auth_id', user.id).maybeSingle()
+          if (u?.tier) tier = u.tier
+        }
+      } catch (_) {
+        // Fallback to free tier
+      }
       const { downloadMemo } = await import('../../../components/ABSMemoPDF')
-      await downloadMemo(result)
+      await downloadMemo(result, tier)
     } finally {
       setPdfStatus('idle')
     }
