@@ -2,12 +2,29 @@
 import { jsPDF } from 'jspdf'
 import type { AbsResult } from '../lib/abs_logic'
 
-export async function downloadMemo(result: AbsResult): Promise<void> {
+export async function downloadMemo(result: AbsResult, tier: string = 'free'): Promise<void> {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' })
   const pageWidth = 595
+  const pageHeight = 842
   const margin = 57
   const contentWidth = pageWidth - margin * 2
   let y = 60
+
+  // Watermark for Free Tier (anti-abuse / value-gating)
+  if (tier === 'free') {
+    doc.saveGraphicsState()
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(22)
+    doc.setTextColor(215, 220, 218)
+    // Diagonal across center of page
+    doc.text(
+      'COMMUNITY PREVIEW — NOT VALID FOR SBB/NBA FILING',
+      pageWidth / 2,
+      pageHeight / 2,
+      { align: 'center', angle: 45 }
+    )
+    doc.restoreGraphicsState()
+  }
 
   // Header
   doc.setFont('helvetica', 'bold')

@@ -14,6 +14,7 @@ import {
   generateAuditCertificate,
   ConfidentialReceipt,
 } from '../../../lib/privacyShield'
+import { getDeviceId } from '../../../lib/deviceFingerprint'
 
 // ── Markdown prose styles ─────────────────────────────────────────────────────
 const MD_STYLES = `
@@ -427,6 +428,7 @@ function AskPage() {
       }
 
       const history = messages.map(m => ({ role: m.role, content: m.content })).slice(-6)
+      const deviceId = await getDeviceId()
       const { data, error: fnError } = await supabase.functions.invoke('ask-query', {
         body: {
           query: q,
@@ -437,6 +439,7 @@ function AskPage() {
           history,
           confidential_mode: confidentialMode,
           payload_hash: payloadHash,
+          device_id: deviceId,
         },
       })
       if (fnError) throw fnError

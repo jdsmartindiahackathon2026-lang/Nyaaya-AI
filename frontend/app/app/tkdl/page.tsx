@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { supabase } from '../../../lib/supabase'
+import { getDeviceId } from '../../../lib/deviceFingerprint'
 
 interface TKDLRecord {
   name: string
@@ -26,7 +27,10 @@ export default function TKDLPage() {
     if (!query.trim() || loading) return
     setLoading(true); setError(null); setResult(null)
     try {
-      const { data, error: fnError } = await supabase.functions.invoke('tkdl-search', { body: { query } })
+      const deviceId = await getDeviceId()
+      const { data, error: fnError } = await supabase.functions.invoke('tkdl-search', {
+        body: { query, device_id: deviceId },
+      })
       if (fnError) throw fnError
       if (data?.error) throw new Error(data.message)
       setResult(data)

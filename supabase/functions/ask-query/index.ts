@@ -83,6 +83,77 @@ const RATE_LIMITS: Record<FunctionName, number> = {
 
 interface RateLimitUser { id: string; is_service_role?: boolean }
 
+function getClientIp(req: Request): string {
+  const forwarded = req.headers.get('x-forwarded-for')
+  if (forwarded) {
+    const first = forwarded.split(',')[0].trim()
+    if (first) return first
+  }
+  const realIp = req.headers.get('x-real-ip')
+  if (realIp) return realIp.trim()
+  const cfConnectingIp = req.headers.get('cf-connecting-ip')
+  if (cfConnectingIp) return cfConnectingIp.trim()
+  return '127.0.0.1'
+}
+
+async function requireAntiAbuseGuard(
+  req: Request,
+  supabase: { rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }> },
+  user: RateLimitUser,
+  deviceId: string | null | undefined,
+  functionName: FunctionName,
+): Promise<Response | null> {
+  if (user.is_service_role) return null
+
+  const clientIp = getClientIp(req)
+
+  const { data, error } = await supabase.rpc('check_anti_abuse_guard', {
+    p_user_id: user.id,
+    p_device_id: deviceId || null,
+    p_client_ip: clientIp,
+    p_function: functionName,
+  })
+
+  if (error) {
+    console.error(`[anti-abuse] RPC failed for ${functionName}:`, error)
+    return null
+  }
+
+  const row = Array.isArray(data)
+    ? (data[0] as { allowed?: boolean; reason?: string } | undefined)
+    : (data as { allowed?: boolean; reason?: string } | null)
+
+  if (row && row.allowed === false) {
+    let msg = 'Request restricted due to anti-abuse policy.'
+    if (row.reason === 'device_monthly_quota_exceeded') {
+      msg = 'The monthly free query allowance for this device has been reached across accounts. Upgrade to a paid plan for unlimited access.'
+    } else if (row.reason === 'device_account_limit_exceeded') {
+      msg = 'Too many free accounts have been used from this device. Please sign in with your primary account or upgrade to continue.'
+    } else if (row.reason === 'ip_rate_limit_exceeded') {
+      msg = 'High query volume detected from your network. Please wait a few minutes before trying again.'
+    }
+
+    return new Response(
+      JSON.stringify({
+        error: true,
+        code: 'ABUSE_GUARD_BLOCKED',
+        reason: row.reason,
+        message: msg,
+        retryable: false,
+      }),
+      {
+        status: 403,
+        headers: {
+          'Content-Type': 'application/json',
+          ...corsHeaders(req),
+        },
+      },
+    )
+  }
+
+  return null
+}
+
 async function requireRateLimit(
   req: Request,
   supabase: { rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }> },
@@ -418,11 +489,14 @@ serve(async (req) => {
   if (rateLimited) return rateLimited
 
   try {
-    const { query, jurisdiction, language, userType, conversationId, history: rawHistory, confidential_mode, payload_hash } = await req.json()
+    const { query, jurisdiction, language, userType, conversationId, history: rawHistory, confidential_mode, payload_hash, device_id } = await req.json()
 
     if (!query || !jurisdiction || !language || !userType) {
       return errorResponse(req, 'VALIDATION_ERROR', 'Missing required fields: query, jurisdiction, language, userType', false, 400, correlationId)
     }
+
+    const antiAbuseBlocked = await requireAntiAbuseGuard(req, supabase, user, device_id, 'ask-query')
+    if (antiAbuseBlocked) return antiAbuseBlocked
 
     console.info(`[ask-query] [${correlationId}] START user=${user.id} jur=${jurisdiction} lang=${language} confidential=${Boolean(confidential_mode)}`)
 

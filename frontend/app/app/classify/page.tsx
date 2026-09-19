@@ -7,6 +7,7 @@ import {
   generateAuditCertificate,
   ConfidentialReceipt,
 } from '../../../lib/privacyShield'
+import { getDeviceId } from '../../../lib/deviceFingerprint'
 
 const STEPS = ['Describe formulation', 'Add ingredients', 'Review & classify']
 
@@ -110,6 +111,7 @@ export default function ClassifyPage() {
       }
       answers.usesTraditionalKnowledge = !!flags.hasWildCollection
 
+      const deviceId = await getDeviceId()
       const { data, error: fnError } = await supabase.functions.invoke('classify-formulation', {
         body: {
           step: 3,
@@ -117,6 +119,7 @@ export default function ClassifyPage() {
           language: 'en',
           confidential_mode: confidentialMode,
           payload_hash: payloadHash,
+          device_id: deviceId,
         }
       })
       if (fnError) throw fnError
