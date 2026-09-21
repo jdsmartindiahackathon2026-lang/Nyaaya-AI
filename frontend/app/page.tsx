@@ -149,6 +149,7 @@ export default function LandingPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 32, fontSize: 14 }}>
             <a href="#product" style={{ color: '#cfe0d5' }}>Product</a>
             <a href="#corpus" style={{ color: '#cfe0d5' }}>Corpus</a>
+            <a href="/pricing" style={{ color: '#cfe0d5' }}>Pricing</a>
             <a href="/login" style={{ color: '#5ac9a8', fontWeight: 500, padding: '8px 16px', border: '1px solid rgba(90,201,168,0.35)', borderRadius: 999 }}>Sign in</a>
           </div>
         </nav>
@@ -349,6 +350,7 @@ export default function LandingPage() {
                 >
                   Corpus
                 </a>
+                <a href="/pricing" style={{ color: '#9fc2b0' }}>Pricing &amp; Plans</a>
                 <a href="/login" style={{ color: '#9fc2b0' }}>Sign in</a>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13 }}>
