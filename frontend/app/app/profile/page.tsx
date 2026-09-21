@@ -5,6 +5,7 @@ import { supabase } from '../../../lib/supabase'
 import { MAX_TEXT_FIELD_LEN, isValidEmail } from '../../../lib/validators'
 
 import { useWorkspace } from '../../../lib/workspaceContext'
+import { PRICING_TIERS, BillingTier } from '../../../lib/pricingConfig'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -649,6 +650,37 @@ function TeamWorkspaceView() {
     }
   }
 
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false)
+  const [upgrading, setUpgrading] = useState(false)
+  const [upgradeMsg, setUpgradeMsg] = useState('')
+
+  async function handleUpgrade(tier: BillingTier) {
+    if (!activeOrg?.id || upgrading) return
+    setUpgrading(true)
+    setUpgradeMsg('')
+    try {
+      const { error } = await supabase
+        .from('organizations')
+        .update({ billing_tier: tier, billing_status: 'active' })
+        .eq('id', activeOrg.id)
+
+      if (error) throw error
+
+      await refreshWorkspaces()
+      setUpgradeMsg(`Successfully switched to ${tier.toUpperCase()} tier!`)
+      setTimeout(() => {
+        setShowUpgradeModal(false)
+        setUpgradeMsg('')
+      }, 1500)
+    } catch (err: unknown) {
+      setUpgradeMsg(err instanceof Error ? err.message : 'Upgrade failed.')
+    } finally {
+      setUpgrading(false)
+    }
+  }
+
+  const currentTier = activeOrg?.billing_tier || 'free'
+  const tierConfig = PRICING_TIERS[currentTier]
   const isOwnerOrAdmin = activeOrg?.role === 'owner' || activeOrg?.role === 'admin'
 
   return (
@@ -656,27 +688,171 @@ function TeamWorkspaceView() {
       {/* Workspace Header Overview */}
       <div style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14,
-        padding: '16px 20px', borderRadius: 12, border: '1px solid var(--border-hi)',
+        padding: '18px 22px', borderRadius: 12, border: '1px solid var(--border-hi)',
         background: 'rgba(28,74,55,0.25)',
       }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontFamily: "'Source Serif 4', Georgia, serif", fontSize: 19, fontWeight: 700, color: 'var(--text-hi)' }}>
+            <span style={{ fontFamily: "'Source Serif 4', Georgia, serif", fontSize: 20, fontWeight: 700, color: 'var(--text-hi)' }}>
               {activeOrg?.name || 'Workspace'}
             </span>
             <span style={{
-              fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em',
-              padding: '3px 8px', borderRadius: 999, background: 'rgba(90,201,168,0.18)', color: 'var(--accent)',
-              border: '1px solid var(--border-hi)',
+              fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.08em',
+              padding: '3px 9px', borderRadius: 999, background: 'rgba(90,201,168,0.18)', color: 'var(--accent)',
+              border: '1px solid var(--border-hi)', fontWeight: 600,
             }}>
-              {activeOrg?.billing_tier || 'free'} tier
+              {currentTier} tier
             </span>
           </div>
           <div style={{ fontSize: 12.5, color: 'var(--text-lo)' }}>
-            Workspace ID: <span className="mono" style={{ color: 'var(--mono-val)' }}>{activeOrg?.slug}</span> · Your Role: <strong style={{ color: 'var(--accent)', textTransform: 'capitalize' }}>{activeOrg?.role}</strong>
+            Workspace ID: <span className="mono" style={{ color: 'var(--mono-val)' }}>{activeOrg?.slug}</span> · Your Role: <strong style={{ color: 'var(--accent)', textTransform: 'capitalize' }}>{activeOrg?.role}</strong> · Seats: <strong style={{ color: 'var(--text-hi)' }}>{members.length} / {tierConfig.seats}</strong>
           </div>
         </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <a
+            href="/pricing"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              padding: '7px 14px', borderRadius: 7, border: '1px solid var(--border-hi)',
+              background: 'transparent', color: 'var(--text-dim)', fontSize: 12.5, textDecoration: 'none',
+            }}
+          >
+            Compare Tiers
+          </a>
+          {isOwnerOrAdmin && (
+            <button
+              onClick={() => setShowUpgradeModal(true)}
+              style={{
+                padding: '7px 16px', borderRadius: 7, border: 'none',
+                background: 'linear-gradient(135deg, #5ac9a8 0%, #7fd9ae 100%)',
+                color: '#061710', fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
+                boxShadow: '0 2px 8px rgba(90,201,168,0.3)',
+              }}
+            >
+              {currentTier === 'free' ? 'Upgrade Workspace' : 'Change Plan'}
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Upgrade Plan Modal */}
+      {showUpgradeModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 999,
+          background: 'rgba(4, 10, 8, 0.8)', backdropFilter: 'blur(6px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+        }}>
+          <div style={{
+            maxWidth: 680, width: '100%', background: '#0b1913',
+            border: '1px solid var(--border-hi)', borderRadius: 16, padding: '24px 28px',
+            boxShadow: '0 24px 60px rgba(0,0,0,0.6)', display: 'flex', flexDirection: 'column', gap: 20,
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ fontSize: 19, fontWeight: 700, color: 'var(--text-hi)', margin: '0 0 4px' }}>
+                  Upgrade {activeOrg?.name || 'Workspace'}
+                </h3>
+                <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>
+                  Unlock higher team seat caps, unwatermarked ABS PDFs, and expanded query allowances.
+                </div>
+              </div>
+              <button
+                onClick={() => setShowUpgradeModal(false)}
+                style={{ background: 'transparent', border: 'none', color: 'var(--text-dim)', fontSize: 20, cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {upgradeMsg && (
+              <div style={{
+                padding: '10px 14px', borderRadius: 8,
+                background: upgradeMsg.includes('Successfully') ? 'rgba(90,201,168,0.15)' : 'rgba(232,160,160,0.15)',
+                color: upgradeMsg.includes('Successfully') ? '#7fd9ae' : '#e8a0a0',
+                fontSize: 13, fontWeight: 500,
+              }}>
+                {upgradeMsg}
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
+              {/* Starter Option */}
+              <div style={{
+                padding: '18px 20px', borderRadius: 12,
+                border: currentTier === 'starter' ? '1.5px solid #5ac9a8' : '1px solid var(--border)',
+                background: currentTier === 'starter' ? 'rgba(90,201,168,0.08)' : 'rgba(255,255,255,0.02)',
+                display: 'flex', flexDirection: 'column', gap: 12,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-hi)' }}>Starter</span>
+                  <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent)' }}>₹1,499/mo</span>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-lo)', lineHeight: 1.45 }}>
+                  Up to 3 seats, 150 AI queries, 50 TKDL checks, clean official ABS PDFs.
+                </div>
+                <button
+                  disabled={upgrading || currentTier === 'starter'}
+                  onClick={() => handleUpgrade('starter')}
+                  style={{
+                    marginTop: 'auto', padding: '9px 14px', borderRadius: 7, border: 'none',
+                    background: currentTier === 'starter' ? 'var(--border)' : '#5ac9a8',
+                    color: currentTier === 'starter' ? 'var(--text-dim)' : '#061710',
+                    fontSize: 13, fontWeight: 700, cursor: currentTier === 'starter' ? 'default' : 'pointer',
+                  }}
+                >
+                  {currentTier === 'starter' ? 'Current Plan' : 'Select Starter'}
+                </button>
+              </div>
+
+              {/* Pro Option */}
+              <div style={{
+                padding: '18px 20px', borderRadius: 12,
+                border: currentTier === 'pro' ? '1.5px solid #5ac9a8' : '1px solid var(--border)',
+                background: currentTier === 'pro' ? 'rgba(90,201,168,0.08)' : 'rgba(255,255,255,0.02)',
+                display: 'flex', flexDirection: 'column', gap: 12,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-hi)' }}>Pro</span>
+                  <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent)' }}>₹4,999/mo</span>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-lo)', lineHeight: 1.45 }}>
+                  Up to 10 seats, 750 AI queries, 250 TKDL checks, multi-state SBB tracking.
+                </div>
+                <button
+                  disabled={upgrading || currentTier === 'pro'}
+                  onClick={() => handleUpgrade('pro')}
+                  style={{
+                    marginTop: 'auto', padding: '9px 14px', borderRadius: 7, border: 'none',
+                    background: currentTier === 'pro' ? 'var(--border)' : '#5ac9a8',
+                    color: currentTier === 'pro' ? 'var(--text-dim)' : '#061710',
+                    fontSize: 13, fontWeight: 700, cursor: currentTier === 'pro' ? 'default' : 'pointer',
+                  }}
+                >
+                  {currentTier === 'pro' ? 'Current Plan' : 'Select Pro'}
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+                Looking for Enterprise (Custom branding, unlimited seats)?{' '}
+                <a href="mailto:sales@nyaaya.ai" style={{ color: 'var(--accent)', textDecoration: 'none' }}>Contact Sales</a>
+              </div>
+              <button
+                onClick={() => setShowUpgradeModal(false)}
+                style={{
+                  padding: '7px 14px', borderRadius: 7, border: '1px solid var(--border-hi)',
+                  background: 'transparent', color: 'var(--text)', fontSize: 12.5, cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Invite Member Section (Owner/Admin only) */}
       {isOwnerOrAdmin && (
